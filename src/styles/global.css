@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #090d14;
+  --bg-soft: #0d1117;
+  --surface: rgba(18, 24, 34, 0.78);
+  --surface-strong: #121822;
+  --surface-hover: #18202d;
+  --border: rgba(139, 148, 158, 0.18);
+  --border-strong: rgba(230, 237, 243, 0.22);
+  --text: #f2f6fb;
+  --muted: #9aa4b2;
+  --subtle: #6f7a89;
+  --brand: #ffffff;
+  --accent: #7dd3fc;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --shadow-soft: 0 24px 80px rgba(0, 0, 0, 0.36);
+}
+
+html {
+  background: var(--bg);
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(125, 211, 252, 0.1), transparent 34rem),
+    radial-gradient(circle at top right, rgba(74, 222, 128, 0.07), transparent 30rem),
+    var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #303947 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #303947;
+  border-radius: 999px;
+}
+
+::selection {
+  background: rgba(125, 211, 252, 0.26);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@layer components {
+  .app-shell {
+    @apply min-h-screen bg-[var(--bg)] text-[var(--text)];
+  }
+
+  .glass-panel {
+    @apply border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-soft)] backdrop-blur-xl;
+  }
+
+  .quiet-panel {
+    @apply border border-[var(--border)] bg-[var(--surface-strong)];
+  }
+
+  .eyebrow {
+    @apply text-xs font-medium uppercase tracking-[0.16em] text-[var(--subtle)];
+  }
+
+  .primary-action {
+    @apply inline-flex items-center justify-center rounded-[var(--radius-md)] bg-white px-4 py-2.5 text-sm font-semibold text-[#090d14] transition duration-200 hover:-translate-y-0.5 hover:bg-[#eef4fb] disabled:pointer-events-none disabled:opacity-45;
+  }
+
+  .secondary-action {
+    @apply inline-flex items-center justify-center rounded-[var(--radius-md)] border border-[var(--border)] bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-[var(--text)] transition duration-200 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:bg-white/[0.07];
+  }
+
+  .input-surface {
+    @apply rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0c1119] px-4 py-3 text-sm text-[var(--text)] outline-none transition placeholder:text-[var(--subtle)] focus:border-[var(--border-strong)] focus:bg-[#0f1621];
+  }
+
+  .status-pill {
+    @apply rounded-full border border-[var(--border)] bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-[var(--muted)];
+  }
+}
+
+@keyframes radarFillPulse {
+  0%,
+  100% {
+    fill-opacity: 0.18;
+  }
+
+  50% {
+    fill-opacity: 0.3;
+  }
+}
+
+@keyframes softPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.radar-fill {
+  animation: radarFillPulse 3s ease-in-out infinite;
+}
+
+.radar-grid {
+  stroke: #303947;
+  stroke-dasharray: 2;
+}
+
+.pulse-active,
+.score-ring {
+  animation: softPulse 2s ease-in-out infinite;
+}
+
+.spinner-rotate {
+  animation: rotate 1.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
