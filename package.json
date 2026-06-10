@@ -18,6 +18,7 @@
     "next": "^16.0.10",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "styled-components": "^6.4.2",
     "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
@@ -39,5 +40,5 @@
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.18.0"
   },
-  "author": "Nhan Luong"
+  "author": "Tuan Hiep"
 }
