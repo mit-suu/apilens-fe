@@ -1,5 +1,6 @@
 import ApilensFooter from '@/components/ApilensFooter';
 import MotionScope from '@/components/MotionScope';
+import { getBackendAuthUrl } from '@/libs/env';
 import { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -120,6 +121,8 @@ function ReportPreview() {
 }
 
 export default function LandingPage() {
+  const githubAuthUrl = getBackendAuthUrl('/auth/github');
+
   return (
     <MotionScope>
       <div className="app-shell overflow-hidden">
@@ -142,12 +145,12 @@ export default function LandingPage() {
                 </a>
               ))}
             </nav>
-            <Link href="/auth/github" className="secondary-action">
+            <a href={githubAuthUrl} className="secondary-action">
               <div className="flex items-center gap-2">
                 <GithubIcon />
                 <span>Continue</span>
               </div>
-            </Link>
+            </a>
           </div>
         </header>
 
@@ -169,12 +172,12 @@ export default function LandingPage() {
                 static API structure into a readable quality report for teams.
               </p>
               <div className="motion-item mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link href="/auth/github" className="primary-action">
+                <a href={githubAuthUrl} className="primary-action">
                   <div className="flex items-center gap-2">
                     <GithubIcon />
                     Continue with GitHub
                   </div>
-                </Link>
+                </a>
                 <a href="#workflow" className="secondary-action">
                   See workflow
                 </a>
