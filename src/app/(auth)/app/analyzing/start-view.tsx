@@ -3,100 +3,128 @@
 import HamsterLoader from '@/components/HamsterLoader';
 import MotionScope from '@/components/MotionScope';
 import UserBadge from '@/components/UserBadge';
-import { getAnalysis } from '@/libs/api';
-import { type Analysis, type AuthUser } from '@/types/global';
+import { createAnalysis, getRepositoryTree } from '@/libs/api';
+import { type AuthUser } from '@/types/global';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const progressSteps = [
-  'Fetching file from GitHub',
-  'Parsing routes and API definitions',
-  'Running rule engine',
-  'Generating AI suggestions',
+  'Reading selected branch',
+  'Scanning repository tree',
+  'Preparing analysis job',
+  'Opening live pipeline',
 ];
 
 const completeStatuses = new Set(['done', 'completed', 'complete', 'success', 'finished']);
-const failedStatuses = new Set(['failed', 'error']);
-const maxPolls = 60;
 const minimumLoadingMs = 3600;
 
-export default function AnalyzingView({ user }: { user: AuthUser }) {
-  const params = useParams<{ analysisId: string }>();
+const splitRepo = (fullName: string) => {
+  const [owner, repo] = fullName.split('/');
+
+  return { owner: owner || '', repo: repo || '' };
+};
+
+export default function StartAnalyzingView({ user }: { user: AuthUser }) {
   const router = useRouter();
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const searchParams = useSearchParams();
+  const startPromiseRef = useRef<Promise<{ analysisId: string; status: string }> | null>(
+    null
+  );
+  const startKeyRef = useRef('');
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
-
-  const analysisId = params.analysisId;
-
-  const routerRef = useRef(router);
-  useEffect(() => {
-    routerRef.current = router;
-  }, [router]);
+  const repoFullName = searchParams.get('repoFullName') || '';
+  const branch = searchParams.get('branch') || '';
+  const queryFilePath = searchParams.get('filePath') || '';
+  const queryFileType = searchParams.get('fileType') || '';
 
   useEffect(() => {
-    if (!analysisId) return;
+    const intervalId = window.setInterval(() => {
+      setTick((value) => value + 1);
+    }, 700);
 
-    let mounted = true;
-    let timeoutId: ReturnType<typeof setTimeout>;
-    let pollCount = 0;
-    const startedAt = Date.now();
+    return () => window.clearInterval(intervalId);
+  }, []);
 
-    const poll = async () => {
-      try {
-        const result = await getAnalysis(analysisId);
-        const status = String(result.status).toLowerCase();
+  useEffect(() => {
+    if (!repoFullName || !branch) {
+      setError('Missing repository or branch information.');
+      return;
+    }
 
-        if (!mounted) return;
+    let active = true;
+    const startKey = `${repoFullName}::${branch}::${queryFilePath}::${queryFileType}`;
 
-        setAnalysis(result);
-        setTick((value) => Math.min(value + 1, progressSteps.length - 1));
+    if (startKeyRef.current !== startKey) {
+      startKeyRef.current = startKey;
+      startPromiseRef.current = null;
+    }
 
-        if (completeStatuses.has(status)) {
-          const remainingMs = minimumLoadingMs - (Date.now() - startedAt);
+    if (!startPromiseRef.current) {
+      const startedAt = Date.now();
 
-          if (remainingMs > 0) {
-            await new Promise((resolve) => window.setTimeout(resolve, remainingMs));
+      startPromiseRef.current = (async () => {
+        const { owner, repo } = splitRepo(repoFullName);
+        let finalFilePath = queryFilePath;
+        let finalFileType = queryFileType;
+
+        if (!finalFilePath || !finalFileType) {
+          const treePayload = await getRepositoryTree(owner, repo, branch);
+          const firstFile = treePayload.detectedFiles[0];
+
+          if (!firstFile) {
+            throw new Error('No analyzable files found on the selected branch.');
           }
 
-          if (!mounted) return;
+          finalFilePath = firstFile.path;
+          finalFileType = firstFile.detectedAs;
+        }
 
-          routerRef.current.replace(`/app/analyses/${analysisId}`);
+        const analysis = await createAnalysis({
+          repoFullName,
+          branch,
+          filePath: finalFilePath,
+          fileType: finalFileType || undefined,
+        });
+
+        const remainingMs = minimumLoadingMs - (Date.now() - startedAt);
+
+        if (remainingMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, remainingMs));
+        }
+
+        return {
+          analysisId: analysis._id,
+          status: String(analysis.status).toLowerCase(),
+        };
+      })();
+    }
+
+    startPromiseRef.current
+      .then(({ analysisId, status }) => {
+        if (!active) return;
+
+        if (completeStatuses.has(status)) {
+          router.replace(`/app/analyses/${analysisId}`);
           return;
         }
 
-        if (failedStatuses.has(status)) {
-          setError(result.errorMessage || 'Analysis failed.');
-          return;
-        }
-
-        pollCount += 1;
-
-        if (pollCount >= maxPolls) {
-          setError(
-            'Analysis is taking longer than expected. Please check history or try again.'
-          );
-          return;
-        }
-
-        timeoutId = setTimeout(poll, 2000);
-      } catch (caught) {
-        if (!mounted) return;
-
+        router.replace(`/app/analyzing/${analysisId}`);
+      })
+      .catch((caught) => {
+        if (!active) return;
         setError(
-          caught instanceof Error ? caught.message : 'Unable to load analysis.'
+          caught instanceof Error
+            ? caught.message
+            : 'Unable to start analysis.'
         );
-      }
-    };
-
-    poll();
+      });
 
     return () => {
-      mounted = false;
-      clearTimeout(timeoutId);
+      active = false;
     };
-  }, [analysisId]);
+  }, [branch, queryFilePath, queryFileType, repoFullName, router]);
 
   const activeStep = useMemo(() => Math.min(tick, progressSteps.length - 1), [tick]);
 
@@ -123,15 +151,15 @@ export default function AnalyzingView({ user }: { user: AuthUser }) {
               <HamsterLoader className="mb-8 text-[12px] sm:text-[14px]" />
               <p className="eyebrow mb-3">Analysis pipeline</p>
               <h1 className="mb-3 text-3xl font-semibold tracking-tight">
-                Analyzing your API
+                Starting analysis
               </h1>
               <p className="text-sm text-[var(--muted)]">
-                {analysis
-                  ? `${analysis.repoFullName} · ${analysis.branch}`
+                {repoFullName && branch
+                  ? `${repoFullName} - ${branch}`
                   : 'Preparing repository context...'}
               </p>
               <p className="mt-2 text-sm text-[var(--subtle)]">
-                This usually takes 15-20 seconds.
+                APILens is scanning the selected branch now.
               </p>
             </div>
 
@@ -159,13 +187,13 @@ export default function AnalyzingView({ user }: { user: AuthUser }) {
                     >
                       <div className="z-20 flex h-6 w-6 items-center justify-center bg-[#0d1117]">
                         {done ? (
-                          <span className="text-[var(--success)]">✓</span>
-                        ) : active ? (
-                          <span className="spinner-rotate text-white">◌</span>
-                        ) : (
-                          <span className="text-[var(--border-strong)]">
-                            ○
+                          <span className="text-[10px] text-[var(--success)]">
+                            OK
                           </span>
+                        ) : active ? (
+                          <span className="spinner-rotate text-white">O</span>
+                        ) : (
+                          <span className="text-[var(--border-strong)]">o</span>
                         )}
                       </div>
                       <div className="flex flex-col">
@@ -179,13 +207,7 @@ export default function AnalyzingView({ user }: { user: AuthUser }) {
                           {step}
                         </span>
                         <span className="font-mono text-sm text-[var(--subtle)]">
-                          {index === 1 && analysis?.endpointCount
-                            ? `${analysis.endpointCount} endpoints found`
-                            : active
-                              ? 'Processing...'
-                              : done
-                                ? 'Complete'
-                                : 'Waiting'}
+                          {active ? 'Processing...' : done ? 'Complete' : 'Waiting'}
                         </span>
                       </div>
                     </div>
@@ -199,7 +221,7 @@ export default function AnalyzingView({ user }: { user: AuthUser }) {
                     </span>
                   </div>
                   <span className="font-mono text-sm text-[var(--text)]">
-                    {Math.min(95, 35 + tick * 18)}%
+                    {Math.min(92, 24 + tick * 12)}%
                   </span>
                 </div>
               </div>

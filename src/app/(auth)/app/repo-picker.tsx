@@ -1,9 +1,9 @@
 'use client';
 
+import ApilensFooter from '@/components/ApilensFooter';
 import MotionScope from '@/components/MotionScope';
 import UserBadge from '@/components/UserBadge';
 import {
-  createAnalysis,
   getRepositoryTree,
   listBranches,
   listRepositories,
@@ -13,7 +13,6 @@ import {
   type Branch,
   type DetectedFile,
   type Repository,
-  type RepositoryTree,
 } from '@/types/global';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -23,12 +22,6 @@ const splitRepo = (fullName: string) => {
   const [owner, repo] = fullName.split('/');
 
   return { owner: owner || '', repo: repo || '' };
-};
-
-const fileTypeLabel: Record<DetectedFile['detectedAs'], string> = {
-  openapi: 'OpenAPI',
-  postman: 'Postman',
-  express: 'Express',
 };
 
 function AppHeader({ user }: { user: AuthUser }) {
@@ -57,16 +50,14 @@ function AppHeader({ user }: { user: AuthUser }) {
 function StepIndicator({
   selectedRepo,
   selectedBranch,
-  selectedFile,
 }: {
   selectedRepo: Repository | null;
   selectedBranch: string;
-  selectedFile: DetectedFile | null;
 }) {
   const steps = [
     { label: '01 - Repository', active: true },
     { label: '02 - Branch', active: Boolean(selectedRepo) },
-    { label: '03 - Analyze', active: Boolean(selectedRepo && selectedBranch && selectedFile) },
+    { label: '03 - Analyze', active: Boolean(selectedRepo && selectedBranch) },
   ];
 
   return (
@@ -95,15 +86,16 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
   const router = useRouter();
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [tree, setTree] = useState<RepositoryTree | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedFile, setSelectedFile] = useState<DetectedFile | null>(null);
   const [search, setSearch] = useState('');
   const [loadingRepos, setLoadingRepos] = useState(true);
-  const [loadingTree, setLoadingTree] = useState(false);
+  const [loadingBranches, setLoadingBranches] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
+  const [files, setFiles] = useState<DetectedFile[]>([]);
+  const [selectedFile, setSelectedFile] = useState<DetectedFile | null>(null);
+  const [loadingFiles, setLoadingFiles] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -143,25 +135,21 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
   const loadRepoDetails = async (repo: Repository) => {
     setError('');
     setSelectedRepo(repo);
+    setSelectedBranch('');
+    setFiles([]);
     setSelectedFile(null);
-    setTree(null);
-    setLoadingTree(true);
+    setBranches([]);
+    setLoadingBranches(true);
 
     try {
       const { owner, repo: repoName } = splitRepo(repo.fullName);
       const branchItems = await listBranches(owner, repoName);
-      const defaultBranch =
-        branchItems.find((branch) => branch.name === repo.defaultBranch)?.name ||
-        branchItems[0]?.name ||
-        repo.defaultBranch ||
-        'main';
 
       setBranches(branchItems);
-      setSelectedBranch(defaultBranch);
 
-      const treePayload = await getRepositoryTree(owner, repoName, defaultBranch);
-      setTree(treePayload);
-      setSelectedFile(treePayload.detectedFiles[0] || null);
+      if (branchItems.length === 0) {
+        setError('No branches found for the selected repository.');
+      }
     } catch (caught) {
       setBranches([]);
       setError(
@@ -170,55 +158,61 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
           : 'Unable to load repository metadata.'
       );
     } finally {
-      setLoadingTree(false);
+      setLoadingBranches(false);
     }
   };
 
-  const changeBranch = async (branch: string) => {
+  const changeBranch = async (branchName: string) => {
     if (!selectedRepo) return;
 
-    setSelectedBranch(branch);
+    setSelectedBranch(branchName);
     setSelectedFile(null);
-    setTree(null);
-    setLoadingTree(true);
+    setFiles([]);
+    setLoadingFiles(true);
     setError('');
 
     try {
       const { owner, repo } = splitRepo(selectedRepo.fullName);
-      const treePayload = await getRepositoryTree(owner, repo, branch);
-
-      setTree(treePayload);
-      setSelectedFile(treePayload.detectedFiles[0] || null);
+      const tree = await getRepositoryTree(owner, repo, branchName);
+      setFiles(tree.detectedFiles || []);
+      if (tree.detectedFiles && tree.detectedFiles.length > 0) {
+        setSelectedFile(tree.detectedFiles[0] || null);
+      } else {
+        setError('No analyzable files found on the selected branch.');
+      }
     } catch (caught) {
+      setFiles([]);
       setError(
-        caught instanceof Error ? caught.message : 'Unable to scan repository tree.'
+        caught instanceof Error
+          ? caught.message
+          : 'Unable to load repository tree.'
       );
     } finally {
-      setLoadingTree(false);
+      setLoadingFiles(false);
     }
   };
 
-  const analyze = async () => {
+  const resetBranchSelection = () => {
+    setSelectedBranch('');
+    setSelectedFile(null);
+    setFiles([]);
+    setError('');
+  };
+
+  const handleStartAnalysis = () => {
     if (!selectedRepo || !selectedBranch || !selectedFile) return;
 
     setAnalyzing(true);
-    setError('');
 
-    try {
-      const analysis = await createAnalysis({
-        repoFullName: selectedRepo.fullName,
-        branch: selectedBranch,
-        filePath: selectedFile.path,
-        fileType: selectedFile.detectedAs,
-      });
+    const params = new URLSearchParams({
+      repoFullName: selectedRepo.fullName,
+      branch: selectedBranch,
+      filePath: selectedFile.path,
+      fileType: selectedFile.detectedAs,
+    });
 
-      router.push(`/app/analyzing/${analysis._id}`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Analysis failed.');
-      setAnalyzing(false);
-    }
+    router.push(`/app/analyzing?${params.toString()}`);
   };
-
   return (
     <MotionScope>
       <div className="app-shell flex min-h-screen flex-col">
@@ -238,7 +232,6 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
             <StepIndicator
               selectedRepo={selectedRepo}
               selectedBranch={selectedBranch}
-              selectedFile={selectedFile}
             />
           </div>
 
@@ -265,7 +258,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                   onChange={(event) => setSearch(event.target.value)}
                 />
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--subtle)]">
-                  ⌕
+                  /
                 </span>
               </div>
 
@@ -329,8 +322,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                   </div>
                   <h2 className="text-xl font-semibold">Pick a repo to continue</h2>
                   <p className="mt-3 max-w-sm text-sm leading-6 text-[var(--muted)]">
-                    Branches and analyzable files will appear here once a
-                    repository is selected.
+                    Branches will appear here once a repository is selected.
                   </p>
                 </div>
               ) : (
@@ -342,102 +334,180 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                     </h2>
                   </div>
 
-                  <div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <label className="text-sm font-medium text-[var(--muted)]" htmlFor="branch">
-                        Branch
-                      </label>
-                      <span className="text-xs text-[var(--subtle)]">
-                        {branches.length} found
-                      </span>
-                    </div>
-                    <select
-                      id="branch"
-                      className="input-surface w-full"
-                      value={selectedBranch}
-                      onChange={(event) => changeBranch(event.target.value)}
-                    >
-                      {branches.map((branch) => (
-                        <option key={branch.name} value={branch.name}>
-                          {branch.name}
-                          {branch.name === selectedRepo.defaultBranch ? ' (default)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {loadingTree ? (
-                    <div className="space-y-2">
-                      <p className="text-sm text-[var(--muted)]">
-                        Scanning repository tree...
-                      </p>
-                      <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
-                        <div className="h-full w-1/2 animate-pulse rounded-full bg-white/40" />
+                  {!selectedBranch ? (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className="mb-2 flex items-center justify-between">
+                        <h3 className="text-sm font-medium text-[var(--muted)]">
+                          Branch
+                        </h3>
+                        <span className="text-xs text-[var(--subtle)]">
+                          {branches.length} found
+                        </span>
                       </div>
-                    </div>
-                  ) : null}
+                      <div className="max-h-[340px] min-h-[240px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)]">
+                        {loadingBranches ? (
+                          <div className="space-y-2 p-3">
+                            {Array.from({ length: 5 }).map((_, index) => (
+                              <div
+                                key={index}
+                                className="h-12 animate-pulse rounded-[var(--radius-sm)] bg-white/[0.045]"
+                              />
+                            ))}
+                          </div>
+                        ) : null}
 
-                  {tree?.warnings.map((warning) => (
-                    <div
-                      key={warning}
-                      className="rounded-[var(--radius-md)] border border-[rgba(251,191,36,0.28)] bg-[rgba(251,191,36,0.1)] p-3 text-sm text-[var(--warning)]"
-                    >
-                      {warning}
-                    </div>
-                  ))}
+                        {!loadingBranches && branches.length === 0 ? (
+                          <div className="flex min-h-[240px] items-center justify-center px-6 text-center text-sm text-[var(--muted)]">
+                            No branches available.
+                          </div>
+                        ) : null}
 
-                  {tree && tree.detectedFiles.length === 0 ? (
-                    <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-5 text-sm leading-6 text-[var(--muted)]">
-                      <p className="font-medium text-[var(--text)]">
-                        No analyzable files found
-                      </p>
-                      <p className="mt-2">
-                        APILens supports Express .js, OpenAPI .yaml/.json, and
-                        Postman .json files.
-                      </p>
-                    </div>
-                  ) : null}
+                        {branches.map((branch) => {
+                          const active = selectedBranch === branch.name;
 
-                  {tree && tree.detectedFiles.length > 0 ? (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium text-[var(--muted)]">
-                        Analyzable files
-                      </h3>
-                      <div className="max-h-[260px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)]">
-                        {tree.detectedFiles.map((file) => (
-                          <button
-                            key={file.path}
-                            aria-pressed={selectedFile?.path === file.path}
-                            className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] ${
-                              selectedFile?.path === file.path
-                                ? 'bg-white/[0.075]'
-                                : ''
-                            }`}
-                            type="button"
-                            onClick={() => setSelectedFile(file)}
-                          >
-                            <span className="truncate font-mono text-sm">
-                              {file.path}
-                            </span>
-                            <span className="status-pill shrink-0">
-                              {fileTypeLabel[file.detectedAs]}
-                            </span>
-                          </button>
-                        ))}
+                          return (
+                            <button
+                              key={branch.name}
+                              aria-pressed={active}
+                              className={`group flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] disabled:cursor-wait disabled:opacity-70 ${
+                                active ? 'bg-white/[0.075]' : ''
+                              }`}
+                              disabled={analyzing}
+                              type="button"
+                              onClick={() => changeBranch(branch.name)}
+                            >
+                              <span className="min-w-0 truncate font-mono text-sm text-[var(--text)]">
+                                {branch.name}
+                                {branch.name === selectedRepo.defaultBranch
+                                  ? ' (default)'
+                                  : ''}
+                              </span>
+                              <span className="translate-x-[-6px] text-sm text-[var(--subtle)] opacity-0 transition group-hover:translate-x-0 group-hover:text-white group-hover:opacity-100">
+                                -&gt;
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
+                      <p className="mt-3 text-sm text-[var(--muted)]">
+                        Click a branch to select it and choose an API file.
+                      </p>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="flex min-h-0 flex-1 flex-col gap-4">
+                      <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-white/[0.02] px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[var(--muted)]">Selected branch:</span>
+                          <span className="font-mono font-semibold text-white truncate max-w-[180px]">
+                            {selectedBranch}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition shrink-0"
+                          onClick={resetBranchSelection}
+                          disabled={analyzing}
+                        >
+                          Change
+                        </button>
+                      </div>
 
-                  <div className="mt-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-white/[0.035] p-3">
-                    <button
-                      className="primary-action w-full"
-                      type="button"
-                      disabled={!selectedFile || analyzing}
-                      onClick={analyze}
-                    >
-                      {analyzing ? 'Starting analysis...' : 'Analyze selected file'}
-                    </button>
-                  </div>
+                      <div className="flex min-h-0 flex-1 flex-col mt-1">
+                        <div className="mb-2 flex items-center justify-between">
+                          <h3 className="text-sm font-medium text-[var(--muted)]">
+                            Select API File
+                          </h3>
+                          <span className="text-xs text-[var(--subtle)]">
+                            {files.length} found
+                          </span>
+                        </div>
+                        <div className="max-h-[240px] min-h-[160px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-black/20">
+                          {loadingFiles ? (
+                            <div className="space-y-2 p-3">
+                              {Array.from({ length: 3 }).map((_, index) => (
+                                <div
+                                  key={index}
+                                  className="h-12 animate-pulse rounded-[var(--radius-sm)] bg-white/[0.045]"
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {!loadingFiles && files.length === 0 ? (
+                            <div className="flex min-h-[160px] flex-col items-center justify-center px-6 text-center text-sm text-[var(--muted)]">
+                              <span>No analyzable files found on this branch.</span>
+                              <button
+                                type="button"
+                                onClick={resetBranchSelection}
+                                className="mt-2 text-xs text-indigo-400 hover:underline"
+                              >
+                                Try another branch
+                              </button>
+                            </div>
+                          ) : null}
+
+                          {!loadingFiles &&
+                            files.map((file) => {
+                              const active = selectedFile?.path === file.path;
+
+                              let badgeClass = "bg-blue-500/10 text-blue-400 border-blue-500/20";
+                              if (file.detectedAs === 'openapi') {
+                                badgeClass = "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                              } else if (file.detectedAs === 'postman') {
+                                badgeClass = "bg-orange-500/10 text-orange-400 border-orange-500/20";
+                              }
+
+                              const sizeKB = (file.size / 1024).toFixed(1);
+
+                              return (
+                                <button
+                                  key={file.path}
+                                  aria-pressed={active}
+                                  className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] disabled:opacity-50 ${
+                                    active ? 'bg-white/[0.075]' : ''
+                                  }`}
+                                  disabled={analyzing}
+                                  type="button"
+                                  onClick={() => setSelectedFile(file)}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate font-mono text-sm text-white">
+                                      {file.path.split('/').pop()}
+                                    </p>
+                                    <p className="mt-0.5 truncate font-mono text-xs text-[var(--subtle)]">
+                                      {file.path}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-xs font-mono text-[var(--subtle)]">
+                                      {sizeKB} KB
+                                    </span>
+                                    <span className={`rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${badgeClass}`}>
+                                      {file.detectedAs}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+
+                      <button
+                        className="w-full mt-2 flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 px-4 py-3 font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 shadow-[0_0_15px_rgba(99,102,241,0.15)] hover:shadow-[0_0_20px_rgba(99,102,241,0.3)]"
+                        onClick={handleStartAnalysis}
+                        disabled={!selectedFile || analyzing || loadingFiles}
+                      >
+                        {analyzing ? (
+                          <>
+                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            Initializing pipeline...
+                          </>
+                        ) : (
+                          'Start Analysis'
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -455,24 +525,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
             </a>
           </p>
         </main>
-        <footer className="border-t border-[var(--border)] py-4">
-          <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5">
-            <span className="text-xs uppercase tracking-widest text-[var(--subtle)]">
-              © 2024 APILens
-          </span>
-            <div className="hidden gap-6 sm:flex">
-            {['Documentation', 'Support', 'Privacy'].map((item) => (
-              <a
-                key={item}
-                  className="text-xs text-[var(--subtle)] transition hover:text-[var(--text)]"
-                href="#"
-              >
-                {item}
-              </a>
-            ))}
-          </div>
-        </div>
-      </footer>
+        <ApilensFooter />
       </div>
     </MotionScope>
   );

@@ -4,6 +4,7 @@ import { getApiBaseUrl } from './env';
 
 const instance = axios.create({
   baseURL: getApiBaseUrl(),
+  timeout: 120000,
 });
 
 instance.interceptors.request.use((config) => {

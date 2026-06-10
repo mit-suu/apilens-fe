@@ -1,3 +1,4 @@
+import ApilensFooter from '@/components/ApilensFooter';
 import MotionScope from '@/components/MotionScope';
 import { Metadata } from 'next';
 import Link from 'next/link';
@@ -13,9 +14,21 @@ export const metadata: Metadata = {
 };
 
 const steps = [
-  ['01', 'Connect GitHub', 'Authorize once and keep analysis scoped to your repositories.'],
-  ['02', 'Choose source', 'Pick a repo, branch, and the API file APILens should inspect.'],
-  ['03', 'Review fixes', 'Get a scored report with endpoint-level smells and suggestions.'],
+  [
+    '01',
+    'Connect GitHub',
+    'Authorize once and keep analysis scoped to your repositories.',
+  ],
+  [
+    '02',
+    'Choose source',
+    'Pick a repo, branch, and the API file APILens should inspect.',
+  ],
+  [
+    '03',
+    'Review fixes',
+    'Get a scored report with endpoint-level smells and suggestions.',
+  ],
 ];
 
 const signals = [
@@ -26,7 +39,12 @@ const signals = [
 
 function GithubIcon() {
   return (
-    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
       <path d="M12 .5A11.5 11.5 0 0 0 8.36 22.9c.58.11.79-.25.79-.56v-2.02c-3.22.7-3.9-1.39-3.9-1.39-.53-1.35-1.3-1.71-1.3-1.71-1.06-.73.08-.72.08-.72 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.41-1.27.74-1.56-2.57-.29-5.27-1.28-5.27-5.72 0-1.26.45-2.3 1.2-3.11-.12-.29-.52-1.47.11-3.07 0 0 .98-.31 3.18 1.19a10.9 10.9 0 0 1 5.8 0c2.2-1.5 3.17-1.19 3.17-1.19.64 1.6.24 2.78.12 3.07.75.81 1.2 1.85 1.2 3.11 0 4.45-2.71 5.43-5.29 5.72.42.36.79 1.07.79 2.16v3.07c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z" />
     </svg>
   );
@@ -41,7 +59,9 @@ function ReportPreview() {
           <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
           <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
         </div>
-        <span className="font-mono text-xs text-[var(--subtle)]">petstore-api/main</span>
+        <span className="font-mono text-xs text-[var(--subtle)]">
+          petstore-api/main
+        </span>
       </div>
       <div className="grid gap-5 p-5">
         <div className="flex items-end justify-between gap-4">
@@ -61,9 +81,24 @@ function ReportPreview() {
 
         <div className="grid gap-2">
           {[
-            ['Critical', 'Verb in URL', 'GET /getUsers is redundant.', 'var(--danger)'],
-            ['Medium', 'No pagination', '/orders lacks limit and offset.', 'var(--warning)'],
-            ['Low', 'Missing versioning', 'No route versioning strategy detected.', 'var(--success)'],
+            [
+              'Critical',
+              'Verb in URL',
+              'GET /getUsers is redundant.',
+              'var(--danger)',
+            ],
+            [
+              'Medium',
+              'No pagination',
+              '/orders lacks limit and offset.',
+              'var(--warning)',
+            ],
+            [
+              'Low',
+              'Missing versioning',
+              'No route versioning strategy detected.',
+              'var(--success)',
+            ],
           ].map(([severity, title, detail, color]) => (
             <div
               key={title}
@@ -93,23 +128,25 @@ export default function LandingPage() {
             <Link href="/" className="text-2xl font-extrabold tracking-tight">
               APILens
             </Link>
-            <nav aria-label="Primary" className="hidden items-center gap-6 md:flex">
+            <nav
+              aria-label="Primary"
+              className="hidden items-center gap-6 md:flex"
+            >
               {['Overview', 'Workflow', 'Report'].map((item) => (
                 <a
                   key={item}
-                  href={`#${item.toLowerCase()}`}
                   className="text-sm text-[var(--muted)] transition hover:text-[var(--text)]"
+                  href={`#${item.toLowerCase()}`}
                 >
                   {item}
                 </a>
               ))}
             </nav>
             <Link href="/auth/github" className="secondary-action">
-             <div className="flex items-center gap-2">
-              
-              <GithubIcon />
-              <span>Continue</span>
-             </div>
+              <div className="flex items-center gap-2">
+                <GithubIcon />
+                <span>Continue</span>
+              </div>
             </Link>
           </div>
         </header>
@@ -133,9 +170,9 @@ export default function LandingPage() {
               </p>
               <div className="motion-item mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link href="/auth/github" className="primary-action">
-                 <div className="flex items-center gap-2">
-                  <GithubIcon  />
-                  Continue with GitHub
+                  <div className="flex items-center gap-2">
+                    <GithubIcon />
+                    Continue with GitHub
                   </div>
                 </Link>
                 <a href="#workflow" className="secondary-action">
@@ -184,12 +221,17 @@ export default function LandingPage() {
             <div className="glass-panel motion-item rounded-[var(--radius-lg)] p-5 md:p-7">
               <div className="grid gap-4 md:grid-cols-3">
                 {signals.map(([label, value, detail]) => (
-                  <div key={label} className="rounded-[var(--radius-md)] bg-white/[0.035] p-4">
+                  <div
+                    key={label}
+                    className="rounded-[var(--radius-md)] bg-white/[0.035] p-4"
+                  >
                     <p className="text-sm text-[var(--muted)]">{label}</p>
                     <p className="mt-2 text-3xl font-semibold tracking-[-0.04em]">
                       {value}
                     </p>
-                    <p className="mt-2 text-sm text-[var(--subtle)]">{detail}</p>
+                    <p className="mt-2 text-sm text-[var(--subtle)]">
+                      {detail}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -197,18 +239,7 @@ export default function LandingPage() {
           </section>
         </main>
 
-        <footer className="border-t border-[var(--border)] px-5 py-8">
-          <div className="mx-auto flex max-w-6xl flex-col justify-between gap-4 text-sm text-[var(--subtle)] md:flex-row">
-            <span>APILens · Built for developers</span>
-            <div className="flex gap-5">
-              {['Documentation', 'Status', 'Privacy'].map((item) => (
-                <a key={item} href="#" className="transition hover:text-[var(--text)]">
-                  {item}
-                </a>
-              ))}
-            </div>
-          </div>
-        </footer>
+        <ApilensFooter />
       </div>
     </MotionScope>
   );

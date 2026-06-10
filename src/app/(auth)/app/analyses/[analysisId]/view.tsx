@@ -7,6 +7,7 @@ import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import styled from 'styled-components';
 
 const severityStyle: Record<
   Smell['severity'],
@@ -41,6 +42,579 @@ const getCategoryValue = (analysis: Analysis, key: string, fallback: number) => 
 
   return typeof value === 'number' ? value : fallback;
 };
+
+type ExportFormat = 'pdf' | 'json';
+type ExportState = 'idle' | 'exporting' | 'done';
+
+const safeFileName = (value: string) =>
+  value
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+const escapeHtml = (value: string | number | undefined | null) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+const buildReportFileName = (analysis: Analysis, extension: ExportFormat) =>
+  `${safeFileName(`${analysis.repoFullName}-${analysis.filePath}`) || 'apilens-report'}.${extension}`;
+
+const exportAnalysisJson = (analysis: Analysis) => {
+  downloadBlob(
+    new Blob([JSON.stringify(analysis, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    }),
+    buildReportFileName(analysis, 'json')
+  );
+};
+
+const buildPdfHtml = (analysis: Analysis) => {
+  const categories = Object.entries(analysis.categoryScores || {});
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(buildReportFileName(analysis, 'pdf'))}</title>
+    <style>
+      body {
+        margin: 0;
+        background: #ffffff;
+        color: #111827;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      main {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 40px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+
+      h2 {
+        margin: 28px 0 12px;
+        font-size: 16px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      p {
+        line-height: 1.55;
+      }
+
+      .muted {
+        color: #4b5563;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .card {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .label {
+        color: #6b7280;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .value {
+        margin-top: 8px;
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid #e5e7eb;
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: #4b5563;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .severity {
+        font-weight: 700;
+      }
+
+      @media print {
+        main {
+          padding: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="label">APILens Analysis Result</p>
+      <h1>Endpoint Integrity Report</h1>
+      <p class="muted">${escapeHtml(analysis.repoFullName)} · ${escapeHtml(
+        analysis.branch
+      )} · ${escapeHtml(analysis.filePath)}</p>
+
+      <section class="grid">
+        <div class="card"><div class="label">Score</div><div class="value">${escapeHtml(
+          analysis.score
+        )}</div></div>
+        <div class="card"><div class="label">Endpoints</div><div class="value">${escapeHtml(
+          analysis.endpointCount
+        )}</div></div>
+        <div class="card"><div class="label">Smells</div><div class="value">${escapeHtml(
+          analysis.smellCount
+        )}</div></div>
+        <div class="card"><div class="label">Status</div><div class="value">${escapeHtml(
+          analysis.status
+        )}</div></div>
+      </section>
+
+      ${
+        categories.length
+          ? `<h2>Category Scores</h2>
+      <table>
+        <thead><tr><th>Category</th><th>Score</th></tr></thead>
+        <tbody>
+          ${categories
+            .map(
+              ([category, score]) =>
+                `<tr><td>${escapeHtml(category)}</td><td>${escapeHtml(score)}</td></tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>`
+          : ''
+      }
+
+      <h2>Detected Issues</h2>
+      ${
+        analysis.smells.length
+          ? `<table>
+        <thead><tr><th>Severity</th><th>Issue</th><th>Description</th><th>Suggestion</th></tr></thead>
+        <tbody>
+          ${analysis.smells
+            .map(
+              (smell) => `<tr>
+                <td class="severity">${escapeHtml(smell.severity)}</td>
+                <td>${escapeHtml(smell.smellName)}</td>
+                <td>${escapeHtml(smell.description)}</td>
+                <td>${escapeHtml(smell.suggestion || 'No suggestion')}</td>
+              </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>`
+          : '<p>No design smells detected.</p>'
+      }
+
+      <h2>AI Remediation Plan</h2>
+      <p>${escapeHtml(analysis.aiSuggestion || 'No remediation plan is required.')}</p>
+    </main>
+    <script>
+      window.addEventListener('load', () => {
+        window.focus();
+        window.print();
+      });
+    </script>
+  </body>
+</html>`;
+};
+
+const exportAnalysisPdf = (analysis: Analysis) => {
+  const printWindow = window.open('', '_blank');
+
+  if (!printWindow) {
+    throw new Error('Unable to open the PDF export window.');
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(buildPdfHtml(analysis));
+  printWindow.document.close();
+};
+
+function ExportSwitch({ analysis }: { analysis: Analysis }) {
+  const [format, setFormat] = useState<ExportFormat>('pdf');
+  const [exportState, setExportState] = useState<ExportState>('idle');
+  const isAnimating = exportState !== 'idle';
+
+  const handleExport = () => {
+    if (isAnimating) return;
+
+    setExportState('exporting');
+
+    window.setTimeout(() => {
+      try {
+        if (format === 'json') {
+          exportAnalysisJson(analysis);
+        } else {
+          exportAnalysisPdf(analysis);
+        }
+
+        setExportState('done');
+      } catch (caught) {
+        setExportState('idle');
+        window.alert(
+          caught instanceof Error ? caught.message : 'Unable to export report.'
+        );
+        return;
+      }
+
+      window.setTimeout(() => setExportState('idle'), 1600);
+    }, 900);
+  };
+
+  return (
+    <ExportSwitchWrapper data-state={exportState}>
+      <div className="export-choice" aria-label="Export format">
+        {(['pdf', 'json'] as const).map((option) => (
+          <button
+            key={option}
+            aria-pressed={format === option}
+            className="format-button"
+            disabled={isAnimating}
+            type="button"
+            onClick={() => setFormat(option)}
+          >
+            {option.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <button
+        className="export-label"
+        disabled={isAnimating}
+        type="button"
+        onClick={handleExport}
+      >
+        <input checked={isAnimating} className="export-input" readOnly type="checkbox" />
+        <span className="export-circle">
+          <svg
+            aria-hidden="true"
+            className="export-icon"
+            fill="none"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12 19V5m0 14-4-4m4 4 4-4"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.5"
+            />
+          </svg>
+          <span className="export-square" />
+        </span>
+        <span className="export-title">
+          {exportState === 'done' ? 'Exported' : `Export ${format.toUpperCase()}`}
+        </span>
+        <span className="sr-only">Export report as {format.toUpperCase()}</span>
+      </button>
+    </ExportSwitchWrapper>
+  );
+}
+
+const ExportSwitchWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+
+  .export-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .format-button {
+    min-width: 3rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.625rem 0.75rem;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .format-button:hover:not(:disabled),
+  .format-button:focus-visible,
+  .format-button[aria-pressed='true'] {
+    background: rgba(125, 211, 252, 0.14);
+    color: var(--text);
+  }
+
+  .format-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+
+  .format-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.62;
+  }
+
+  .export-label {
+    position: relative;
+    display: flex;
+    width: 168px;
+    min-height: 48px;
+    align-items: center;
+    border: 2px solid rgb(91, 91, 240);
+    border-radius: 999px;
+    background-color: transparent;
+    color: #fff;
+    cursor: pointer;
+    overflow: hidden;
+    padding: 4px;
+    transition:
+      border-color 0.4s ease,
+      opacity 0.2s ease,
+      width 0.4s ease;
+  }
+
+  .export-label::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 8px;
+    height: 8px;
+    margin: auto;
+    border-radius: 100%;
+    background-color: #fff;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s ease;
+  }
+
+  .export-label:disabled {
+    cursor: wait;
+  }
+
+  .export-input {
+    display: none;
+  }
+
+  .export-title {
+    position: absolute;
+    right: 18px;
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    transition: all 0.4s ease;
+    white-space: nowrap;
+  }
+
+  .export-circle {
+    position: relative;
+    display: flex;
+    width: 38px;
+    height: 38px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 50%;
+    background-color: rgb(91, 91, 240);
+    box-shadow: 0 0 0 0 rgb(255, 255, 255);
+    transition: all 0.4s ease;
+  }
+
+  .export-circle::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 0;
+    background-color: #3333a8;
+    transition: all 0.4s ease;
+  }
+
+  .export-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 26px;
+    color: #fff;
+    transform: translate(-50%, -50%);
+    transition: all 0.4s ease;
+  }
+
+  .export-square {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    aspect-ratio: 1;
+    width: 13px;
+    border-radius: 2px;
+    background-color: #fff;
+    opacity: 0;
+    transform: translate(-50%, -50%);
+    transition: all 0.4s ease;
+    visibility: hidden;
+  }
+
+  &[data-state='exporting'] .export-label,
+  &[data-state='done'] .export-label {
+    width: 54px;
+  }
+
+  &[data-state='exporting'] .export-label::before {
+    animation: exportRotate 1.9s ease-in-out 0.2s forwards;
+  }
+
+  &[data-state='exporting'] .export-circle {
+    animation: exportPulse 1s forwards;
+    rotate: 180deg;
+  }
+
+  &[data-state='exporting'] .export-circle::before {
+    animation: exportInstalling 0.9s ease-in-out forwards;
+  }
+
+  &[data-state='exporting'] .export-icon,
+  &[data-state='done'] .export-icon {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  &[data-state='exporting'] .export-square {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  &[data-state='exporting'] .export-title {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  &[data-state='done'] .export-label {
+    width: 150px;
+    border-color: rgb(35, 174, 35);
+  }
+
+  &[data-state='done'] .export-circle {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  &[data-state='done'] .export-title {
+    right: 46px;
+    opacity: 1;
+    visibility: visible;
+  }
+
+  @media (max-width: 640px) {
+    width: 100%;
+    flex-wrap: wrap;
+
+    .export-choice,
+    .export-label {
+      flex: 1 1 auto;
+    }
+
+    .export-label {
+      justify-content: flex-start;
+      min-width: 168px;
+    }
+  }
+
+  @keyframes exportPulse {
+    0% {
+      scale: 0.95;
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+    }
+
+    70% {
+      scale: 1;
+      box-shadow: 0 0 0 16px rgba(255, 255, 255, 0);
+    }
+
+    100% {
+      scale: 0.95;
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    }
+  }
+
+  @keyframes exportInstalling {
+    from {
+      height: 0;
+    }
+
+    to {
+      height: 100%;
+    }
+  }
+
+  @keyframes exportRotate {
+    0% {
+      opacity: 1;
+      transform: rotate(-90deg) translate(25px) rotate(0);
+      visibility: visible;
+    }
+
+    99% {
+      opacity: 1;
+      transform: rotate(270deg) translate(25px) rotate(270deg);
+      visibility: visible;
+    }
+
+    100% {
+      opacity: 0;
+      visibility: hidden;
+    }
+  }
+`;
 
 function ScoreRing({ score }: { score: number }) {
   const radius = 58;
@@ -209,9 +783,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
               </p>
             </div>
             <div className="flex gap-2">
-              <button className="secondary-action" type="button">
-                Export JSON
-              </button>
+              <ExportSwitch analysis={analysis} />
               <Link href="/app" className="primary-action">
                 Analyze another repo
               </Link>
