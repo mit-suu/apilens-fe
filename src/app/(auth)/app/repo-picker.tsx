@@ -7,6 +7,7 @@ import {
   getRepositoryTree,
   listBranches,
   listRepositories,
+  scanRepositoryUrl,
 } from '@/libs/api';
 import {
   type AuthUser,
@@ -15,8 +16,8 @@ import {
   type Repository,
 } from '@/types/global';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 const splitRepo = (fullName: string) => {
   const [owner, repo] = fullName.split('/');
@@ -24,18 +25,63 @@ const splitRepo = (fullName: string) => {
   return { owner: owner || '', repo: repo || '' };
 };
 
-function AppHeader({ user }: { user: AuthUser }) {
+const getErrorMessage = (caught: unknown, fallback: string) => {
+  if (
+    caught
+    && typeof caught === 'object'
+    && 'response' in caught
+    && caught.response
+    && typeof caught.response === 'object'
+    && 'data' in caught.response
+  ) {
+    const data = caught.response.data as { error?: { message?: string } };
+
+    if (data.error?.message) {
+      return data.error.message;
+    }
+  }
+
+  return caught instanceof Error ? caught.message : fallback;
+};
+
+function AppHeader({
+  user,
+  sourceMode,
+  onSourceModeChange,
+}: {
+  user: AuthUser;
+  sourceMode: 'repos' | 'url';
+  onSourceModeChange: (mode: 'repos' | 'url') => void;
+}) {
+  const navButtonClass = (active: boolean) =>
+    `rounded-full px-3 py-1.5 text-sm transition ${
+      active
+        ? 'border border-[var(--border-strong)] bg-white/[0.06] font-medium text-white'
+        : 'text-[var(--muted)] hover:bg-white/[0.06] hover:text-white'
+    }`;
+
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[rgba(9,13,20,0.78)] backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5">
-        <div className="flex items-center gap-8">
+        <div className="flex min-w-0 items-center gap-8">
           <Link href="/" className="text-lg font-semibold tracking-tight">
             APILens
           </Link>
           <nav className="hidden items-center gap-2 md:flex" aria-label="App navigation">
-            <Link className="rounded-full border border-[var(--border-strong)] bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white" href="/app">
+            <button
+              className={navButtonClass(sourceMode === 'repos')}
+              onClick={() => onSourceModeChange('repos')}
+              type="button"
+            >
               Dashboard
-            </Link>
+            </button>
+            <button
+              className={navButtonClass(sourceMode === 'url')}
+              onClick={() => onSourceModeChange('url')}
+              type="button"
+            >
+              Repo URL
+            </button>
             <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app/history">
               History
             </Link>
@@ -84,13 +130,19 @@ function StepIndicator({
 
 export default function RepoPicker({ user }: { user: AuthUser }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<Repository | null>(null);
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [sourceMode, setSourceMode] = useState<'repos' | 'url'>(
+    searchParams.get('source') === 'url' ? 'url' : 'repos'
+  );
   const [search, setSearch] = useState('');
+  const [repoUrl, setRepoUrl] = useState('');
   const [loadingRepos, setLoadingRepos] = useState(true);
   const [loadingBranches, setLoadingBranches] = useState(false);
+  const [scanningUrl, setScanningUrl] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState('');
   const [files, setFiles] = useState<DetectedFile[]>([]);
@@ -107,9 +159,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
       .catch((caught: unknown) => {
         if (mounted) {
           setError(
-            caught instanceof Error
-              ? caught.message
-              : 'Unable to load GitHub repositories.'
+            getErrorMessage(caught, 'Unable to load GitHub repositories.')
           );
         }
       })
@@ -153,9 +203,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
     } catch (caught) {
       setBranches([]);
       setError(
-        caught instanceof Error
-          ? caught.message
-          : 'Unable to load repository metadata.'
+        getErrorMessage(caught, 'Unable to load repository metadata.')
       );
     } finally {
       setLoadingBranches(false);
@@ -183,9 +231,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
     } catch (caught) {
       setFiles([]);
       setError(
-        caught instanceof Error
-          ? caught.message
-          : 'Unable to load repository tree.'
+        getErrorMessage(caught, 'Unable to load repository tree.')
       );
     } finally {
       setLoadingFiles(false);
@@ -197,6 +243,74 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
     setSelectedFile(null);
     setFiles([]);
     setError('');
+  };
+
+  const handleScanRepoUrl = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedUrl = repoUrl.trim();
+
+    if (!trimmedUrl || scanningUrl) return;
+
+    setError('');
+    setScanningUrl(true);
+    setLoadingBranches(true);
+    setLoadingFiles(true);
+    setSelectedRepo(null);
+    setSelectedBranch('');
+    setSelectedFile(null);
+    setFiles([]);
+    setBranches([]);
+
+    try {
+      const result = await scanRepositoryUrl({ repoUrl: trimmedUrl });
+      const repo = result.repository;
+      const detectedFiles = result.detectedFiles || [];
+      const { owner, repo: repoName } = splitRepo(repo.fullName);
+
+      setSelectedRepo(repo);
+      setSelectedBranch(result.branch);
+      setBranches([
+        {
+          name: result.branch,
+          protected: false,
+        },
+      ]);
+      setFiles(detectedFiles);
+      setSelectedFile(detectedFiles[0] || null);
+
+      if (detectedFiles.length === 0) {
+        setError('No analyzable files found in this GitHub repository.');
+      }
+
+      try {
+        const branchItems = await listBranches(owner, repoName);
+
+        if (branchItems.length > 0) {
+          setBranches(branchItems);
+        }
+      } catch {
+        setBranches([
+          {
+            name: result.branch,
+            protected: false,
+          },
+        ]);
+      }
+    } catch (caught) {
+      setSelectedRepo(null);
+      setSelectedBranch('');
+      setFiles([]);
+      setSelectedFile(null);
+      setBranches([]);
+      setError(
+        getErrorMessage(caught, 'Unable to scan the GitHub repository URL.')
+      );
+    } finally {
+      setScanningUrl(false);
+      setLoadingFiles(false);
+      setLoadingBranches(false);
+    }
   };
 
   const handleStartAnalysis = () => {
@@ -216,7 +330,11 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
   return (
     <MotionScope>
       <div className="app-shell flex min-h-screen flex-col">
-        <AppHeader user={user} />
+        <AppHeader
+          onSourceModeChange={setSourceMode}
+          sourceMode={sourceMode}
+          user={user}
+        />
         <main className="mx-auto flex w-full max-w-7xl flex-grow flex-col gap-6 px-5 py-8">
           <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
             <div className="motion-item">
@@ -246,72 +364,109 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
 
           <section className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
             <div className="glass-panel motion-item rounded-[var(--radius-lg)] p-4">
-              <label className="mb-3 block text-sm font-medium text-[var(--muted)]" htmlFor="repo-search">
-                Search repositories
-              </label>
-              <div className="relative">
-                <input
-                  id="repo-search"
-                  className="input-surface w-full pl-10"
-                  placeholder="Search by owner or repository..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--subtle)]">
-                  /
-                </span>
-              </div>
-
-              <div className="mt-4 max-h-[55vh] min-h-[280px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)]">
-                {loadingRepos ? (
-                  <div className="space-y-2 p-3">
-                    {Array.from({ length: 6 }).map((_, index) => (
-                      <div
-                        key={index}
-                        className="h-14 animate-pulse rounded-[var(--radius-sm)] bg-white/[0.045]"
-                      />
-                    ))}
-                  </div>
-                ) : null}
-
-                {!loadingRepos && filteredRepos.length === 0 ? (
-                  <div className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
-                    <p className="text-sm font-medium">No repositories found</p>
-                    <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                      Try another search term or review GitHub OAuth
-                      permissions.
-                    </p>
-                  </div>
-                ) : null}
-
-                {filteredRepos.map((repo) => {
-                  const active = selectedRepo?.id === repo.id;
-
-                  return (
+              {sourceMode === 'url' ? (
+                <form
+                  className="flex min-h-[360px] flex-col justify-center"
+                  onSubmit={handleScanRepoUrl}
+                >
+                  <p className="eyebrow mb-3">GitHub URL</p>
+                  <h2 className="text-2xl font-semibold tracking-[-0.03em]">
+                    Scan by repository link
+                  </h2>
+                  <p className="mt-3 max-w-md text-sm leading-6 text-[var(--muted)]">
+                    Paste a public repository link, or a private repository link if your GitHub account has access.
+                  </p>
+                  <label className="mt-6 mb-3 block text-sm font-medium text-[var(--muted)]" htmlFor="repo-url">
+                    Repository URL
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      id="repo-url"
+                      className="input-surface min-w-0 flex-1"
+                      disabled={scanningUrl || analyzing}
+                      onChange={(event) => setRepoUrl(event.target.value)}
+                      placeholder="https://github.com/owner/repo"
+                      value={repoUrl}
+                    />
                     <button
-                      key={repo.id}
-                      aria-pressed={active}
-                      className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] ${
-                        active ? 'bg-white/[0.075]' : ''
-                      }`}
-                      type="button"
-                      onClick={() => loadRepoDetails(repo)}
+                      className="secondary-action shrink-0 disabled:cursor-not-allowed"
+                      disabled={!repoUrl.trim() || scanningUrl || analyzing}
+                      type="submit"
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-[var(--text)]">
-                          {repo.fullName}
-                        </p>
-                        <p className="mt-1 text-xs text-[var(--subtle)]">
-                          Updated {new Date(repo.updatedAt).toLocaleDateString()}
+                      {scanningUrl ? 'Scanning...' : 'Scan URL'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <label className="mb-3 block text-sm font-medium text-[var(--muted)]" htmlFor="repo-search">
+                    Search repositories
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="repo-search"
+                      className="input-surface w-full pl-10"
+                      placeholder="Search by owner or repository..."
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                    />
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--subtle)]">
+                      /
+                    </span>
+                  </div>
+
+                  <div className="mt-4 max-h-[55vh] min-h-[280px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)]">
+                    {loadingRepos ? (
+                      <div className="space-y-2 p-3">
+                        {Array.from({ length: 6 }).map((_, index) => (
+                          <div
+                            key={index}
+                            className="h-14 animate-pulse rounded-[var(--radius-sm)] bg-white/[0.045]"
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {!loadingRepos && filteredRepos.length === 0 ? (
+                      <div className="flex min-h-[280px] flex-col items-center justify-center px-6 text-center">
+                        <p className="text-sm font-medium">No repositories found</p>
+                        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                          Try another search term or review GitHub OAuth
+                          permissions.
                         </p>
                       </div>
-                      <span className="status-pill shrink-0">
-                        {repo.private ? 'Private' : 'Public'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                    ) : null}
+
+                    {filteredRepos.map((repo) => {
+                      const active = selectedRepo?.id === repo.id;
+
+                      return (
+                        <button
+                          key={repo.id}
+                          aria-pressed={active}
+                          className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] ${
+                            active ? 'bg-white/[0.075]' : ''
+                          }`}
+                          type="button"
+                          onClick={() => loadRepoDetails(repo)}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[var(--text)]">
+                              {repo.fullName}
+                            </p>
+                            <p className="mt-1 text-xs text-[var(--subtle)]">
+                              Updated {new Date(repo.updatedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <span className="status-pill shrink-0">
+                            {repo.private ? 'Private' : 'Public'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="glass-panel motion-item rounded-[var(--radius-lg)] p-4 md:p-5">

@@ -2,10 +2,10 @@
 
 import MotionScope from '@/components/MotionScope';
 import UserBadge from '@/components/UserBadge';
-import { getAnalysis } from '@/libs/api';
+import { exportAnalysisReport, getAnalysis, rerunAnalysis } from '@/libs/api';
 import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 
@@ -45,14 +45,10 @@ const getCategoryValue = (analysis: Analysis, key: string, fallback: number) => 
 
 type ExportFormat = 'pdf' | 'json';
 type ExportState = 'idle' | 'exporting' | 'done';
-
-const safeFileName = (value: string) =>
-  value
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .toLowerCase();
+type SuggestionBlock =
+  | { type: 'heading'; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'bullet'; text: string; nested: boolean };
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -66,229 +62,145 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   URL.revokeObjectURL(url);
 };
 
-const escapeHtml = (value: string | number | undefined | null) =>
-  String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+const normalizeSuggestionText = (value: string) =>
+  value
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+##\s+/g, '\n## ')
+    .replace(/\s+###\s+/g, '\n### ')
+    .trim();
 
-const buildReportFileName = (analysis: Analysis, extension: ExportFormat) =>
-  `${safeFileName(`${analysis.repoFullName}-${analysis.filePath}`) || 'apilens-report'}.${extension}`;
+const parseSuggestionBlocks = (value: string): SuggestionBlock[] => {
+  const normalized = normalizeSuggestionText(value);
 
-const exportAnalysisJson = (analysis: Analysis) => {
-  downloadBlob(
-    new Blob([JSON.stringify(analysis, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    }),
-    buildReportFileName(analysis, 'json')
-  );
-};
+  if (!normalized) return [];
 
-const buildPdfHtml = (analysis: Analysis) => {
-  const categories = Object.entries(analysis.categoryScores || {});
+  const lines = normalized
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  const blocks: SuggestionBlock[] = [];
 
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${escapeHtml(buildReportFileName(analysis, 'pdf'))}</title>
-    <style>
-      body {
-        margin: 0;
-        background: #ffffff;
-        color: #111827;
-        font-family: Arial, Helvetica, sans-serif;
-      }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const heading = trimmed.match(/^#{2,3}\s+(.+)$/);
+    const bullet = line.match(/^(\s*)[-*]\s+(.+)$/);
 
-      main {
-        max-width: 860px;
-        margin: 0 auto;
-        padding: 40px;
-      }
-
-      h1 {
-        margin: 0 0 8px;
-        font-size: 28px;
-      }
-
-      h2 {
-        margin: 28px 0 12px;
-        font-size: 16px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      p {
-        line-height: 1.55;
-      }
-
-      .muted {
-        color: #4b5563;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 12px;
-        margin-top: 24px;
-      }
-
-      .card {
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        padding: 14px;
-      }
-
-      .label {
-        color: #6b7280;
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .value {
-        margin-top: 8px;
-        font-size: 22px;
-        font-weight: 700;
-      }
-
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-      }
-
-      th,
-      td {
-        border-bottom: 1px solid #e5e7eb;
-        padding: 10px 8px;
-        text-align: left;
-        vertical-align: top;
-      }
-
-      th {
-        color: #4b5563;
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .severity {
-        font-weight: 700;
-      }
-
-      @media print {
-        main {
-          padding: 24px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <p class="label">APILens Analysis Result</p>
-      <h1>Endpoint Integrity Report</h1>
-      <p class="muted">${escapeHtml(analysis.repoFullName)} · ${escapeHtml(
-        analysis.branch
-      )} · ${escapeHtml(analysis.filePath)}</p>
-
-      <section class="grid">
-        <div class="card"><div class="label">Score</div><div class="value">${escapeHtml(
-          analysis.score
-        )}</div></div>
-        <div class="card"><div class="label">Endpoints</div><div class="value">${escapeHtml(
-          analysis.endpointCount
-        )}</div></div>
-        <div class="card"><div class="label">Smells</div><div class="value">${escapeHtml(
-          analysis.smellCount
-        )}</div></div>
-        <div class="card"><div class="label">Status</div><div class="value">${escapeHtml(
-          analysis.status
-        )}</div></div>
-      </section>
-
-      ${
-        categories.length
-          ? `<h2>Category Scores</h2>
-      <table>
-        <thead><tr><th>Category</th><th>Score</th></tr></thead>
-        <tbody>
-          ${categories
-            .map(
-              ([category, score]) =>
-                `<tr><td>${escapeHtml(category)}</td><td>${escapeHtml(score)}</td></tr>`
-            )
-            .join('')}
-        </tbody>
-      </table>`
-          : ''
-      }
-
-      <h2>Detected Issues</h2>
-      ${
-        analysis.smells.length
-          ? `<table>
-        <thead><tr><th>Severity</th><th>Issue</th><th>Description</th><th>Suggestion</th></tr></thead>
-        <tbody>
-          ${analysis.smells
-            .map(
-              (smell) => `<tr>
-                <td class="severity">${escapeHtml(smell.severity)}</td>
-                <td>${escapeHtml(smell.smellName)}</td>
-                <td>${escapeHtml(smell.description)}</td>
-                <td>${escapeHtml(smell.suggestion || 'No suggestion')}</td>
-              </tr>`
-            )
-            .join('')}
-        </tbody>
-      </table>`
-          : '<p>No design smells detected.</p>'
-      }
-
-      <h2>AI Remediation Plan</h2>
-      <p>${escapeHtml(analysis.aiSuggestion || 'No remediation plan is required.')}</p>
-    </main>
-    <script>
-      window.addEventListener('load', () => {
-        window.focus();
-        window.print();
+    if (heading) {
+      blocks.push({
+        type: 'heading',
+        text: heading[1] || '',
       });
-    </script>
-  </body>
-</html>`;
-};
+      continue;
+    }
 
-const exportAnalysisPdf = (analysis: Analysis) => {
-  const printWindow = window.open('', '_blank');
+    if (bullet) {
+      blocks.push({
+        type: 'bullet',
+        text: bullet[2] || '',
+        nested: (bullet[1] || '').length > 0,
+      });
+      continue;
+    }
 
-  if (!printWindow) {
-    throw new Error('Unable to open the PDF export window.');
+    blocks.push({
+      type: 'paragraph',
+      text: trimmed.replace(/^#+\s*/, ''),
+    });
   }
 
-  printWindow.document.open();
-  printWindow.document.write(buildPdfHtml(analysis));
-  printWindow.document.close();
+  return blocks;
 };
+
+const renderInlineText = (value: string) => {
+  const parts = value.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+
+  return parts.map((part, index) => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code
+          key={`${part}-${index}`}
+          className="rounded border border-[var(--border)] bg-white/[0.055] px-1.5 py-0.5 font-mono text-xs text-white"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={`${part}-${index}`} className="font-semibold text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+};
+
+function AiSuggestionMarkdown({ value }: { value: string }) {
+  const blocks = parseSuggestionBlocks(value);
+
+  if (blocks.length === 0) return null;
+
+  return (
+    <div className="space-y-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4">
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          return (
+            <div
+              key={`${block.type}-${block.text}-${index}`}
+              className={index === 0 ? '' : 'border-t border-[var(--border)] pt-4'}
+            >
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
+                {block.text}
+              </h3>
+            </div>
+          );
+        }
+
+        if (block.type === 'bullet') {
+          return (
+            <div
+              key={`${block.type}-${block.text}-${index}`}
+              className={`flex gap-3 text-sm leading-6 text-[var(--muted)] ${
+                block.nested ? 'ml-5' : ''
+              }`}
+            >
+              <span className="mt-[0.65rem] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
+              <p>{renderInlineText(block.text)}</p>
+            </div>
+          );
+        }
+
+        return (
+          <p
+            key={`${block.type}-${block.text}-${index}`}
+            className="text-sm leading-7 text-[var(--muted)]"
+          >
+            {renderInlineText(block.text)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 function ExportSwitch({ analysis }: { analysis: Analysis }) {
   const [format, setFormat] = useState<ExportFormat>('pdf');
   const [exportState, setExportState] = useState<ExportState>('idle');
   const isAnimating = exportState !== 'idle';
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (isAnimating) return;
 
     setExportState('exporting');
 
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
       try {
-        if (format === 'json') {
-          exportAnalysisJson(analysis);
-        } else {
-          exportAnalysisPdf(analysis);
-        }
+        const result = await exportAnalysisReport(analysis._id, format);
+
+        downloadBlob(result.blob, result.fileName);
 
         setExportState('done');
       } catch (caught) {
@@ -693,9 +605,11 @@ function Radar({ analysis }: { analysis: Analysis }) {
 
 export default function ResultDashboard({ user }: { user: AuthUser }) {
   const params = useParams<{ analysisId: string }>();
+  const router = useRouter();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [error, setError] = useState('');
+  const [rerunning, setRerunning] = useState(false);
 
   useEffect(() => {
     if (!params.analysisId) return;
@@ -717,6 +631,24 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
 
     return analysis.smells[selectedIndex] || analysis.smells[0] || null;
   }, [analysis, selectedIndex]);
+
+  const handleRerun = async () => {
+    if (!analysis || rerunning) return;
+
+    setRerunning(true);
+    setError('');
+
+    try {
+      const nextAnalysis = await rerunAnalysis(analysis._id);
+
+      router.push(`/app/analyzing/${nextAnalysis._id}`);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to rerun analysis.'
+      );
+      setRerunning(false);
+    }
+  };
 
   if (error) {
     return (
@@ -783,6 +715,14 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
               </p>
             </div>
             <div className="flex gap-2">
+              <button
+                className="secondary-action"
+                disabled={rerunning}
+                onClick={handleRerun}
+                type="button"
+              >
+                {rerunning ? 'Rerunning...' : 'Rerun analysis'}
+              </button>
               <ExportSwitch analysis={analysis} />
               <Link href="/app" className="primary-action">
                 Analyze another repo
@@ -940,9 +880,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                   </p>
                 </div>
                 {analysis.aiSuggestion ? (
-                    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4 text-[var(--muted)]">
-                    {analysis.aiSuggestion}
-                  </div>
+                  <AiSuggestionMarkdown value={analysis.aiSuggestion} />
                 ) : null}
               </div>
             </div>

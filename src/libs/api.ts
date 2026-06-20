@@ -4,6 +4,7 @@ import {
   type AuthUser,
   type Branch,
   type Repository,
+  type RepositoryScanResult,
   type RepositoryTree,
 } from '@/types/global';
 
@@ -56,6 +57,15 @@ export const getRepositoryTree = async (
   return data;
 };
 
+export const scanRepositoryUrl = async (payload: {
+  repoUrl: string;
+  branch?: string;
+}) => {
+  const { data } = await http.post<RepositoryScanResult>('/repos/scan', payload);
+
+  return data;
+};
+
 export const createAnalysis = async (payload: {
   repoFullName: string;
   branch: string;
@@ -91,4 +101,31 @@ export const getAnalysis = async (analysisId: string) => {
   );
 
   return data.analysis;
+};
+
+export const rerunAnalysis = async (analysisId: string) => {
+  const { data } = await http.post<{ analysis: Analysis }>(
+    `/analyses/${analysisId}/rerun`
+  );
+
+  return data.analysis;
+};
+
+export const exportAnalysisReport = async (
+  analysisId: string,
+  format: 'pdf' | 'json'
+) => {
+  const response = await http.get<Blob>(`/analyses/${analysisId}/export`, {
+    params: {
+      format,
+    },
+    responseType: 'blob',
+  });
+  const disposition = response.headers['content-disposition'];
+  const fileName = /filename="?([^"]+)"?/i.exec(disposition || '')?.[1];
+
+  return {
+    blob: response.data,
+    fileName: fileName || `apilens-report.${format}`,
+  };
 };
