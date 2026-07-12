@@ -1,6 +1,7 @@
 import ApilensFooter from '@/components/ApilensFooter';
 import MotionScope from '@/components/MotionScope';
 import { getBackendAuthUrl } from '@/libs/env';
+import { getServerCurrentUser } from '@/libs/server-auth';
 import { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -120,8 +121,12 @@ function ReportPreview() {
   );
 }
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const user = await getServerCurrentUser();
   const githubAuthUrl = getBackendAuthUrl('/auth/github');
+  const primaryHref = user ? '/app' : githubAuthUrl;
+  const primaryLabel = user ? 'Open dashboard' : 'Continue with GitHub';
+  const headerLabel = user ? 'Dashboard' : 'Continue';
 
   return (
     <MotionScope>
@@ -145,10 +150,10 @@ export default function LandingPage() {
                 </a>
               ))}
             </nav>
-            <a href={githubAuthUrl} className="secondary-action">
+            <a href={primaryHref} className="secondary-action">
               <div className="flex items-center gap-2">
-                <GithubIcon />
-                <span>Continue</span>
+                {user ? null : <GithubIcon />}
+                <span>{headerLabel}</span>
               </div>
             </a>
           </div>
@@ -172,10 +177,10 @@ export default function LandingPage() {
                 static API structure into a readable quality report for teams.
               </p>
               <div className="motion-item mt-8 flex flex-col gap-3 sm:flex-row">
-                <a href={githubAuthUrl} className="primary-action">
+                <a href={primaryHref} className="primary-action">
                   <div className="flex items-center gap-2">
-                    <GithubIcon />
-                    Continue with GitHub
+                    {user ? null : <GithubIcon />}
+                    {primaryLabel}
                   </div>
                 </a>
                 <a href="#workflow" className="secondary-action">

@@ -40,6 +40,7 @@ export type DetectedFile = {
 };
 
 export type RepositoryTree = {
+  repoFullName?: string;
   branch: string;
   totalFiles: number;
   detectedFiles: DetectedFile[];
@@ -49,6 +50,13 @@ export type RepositoryTree = {
     express: DetectedFile[];
   };
   warnings: string[];
+};
+
+export type RepositoryScanResult = RepositoryTree & {
+  repository: Repository;
+  repoFullName: string;
+  endpoints: Endpoint[];
+  filesScanned: number;
 };
 
 export type Endpoint = {

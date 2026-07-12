@@ -2,10 +2,10 @@
 
 import MotionScope from '@/components/MotionScope';
 import UserBadge from '@/components/UserBadge';
-import { getAnalysis } from '@/libs/api';
+import { exportAnalysisReport, getAnalysis, rerunAnalysis } from '@/libs/api';
 import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import styled from 'styled-components';
@@ -50,14 +50,10 @@ const getCategoryValue = (
 
 type ExportFormat = 'pdf' | 'json';
 type ExportState = 'idle' | 'exporting' | 'done';
-
-const safeFileName = (value: string) =>
-  value
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .toLowerCase();
+type SuggestionBlock =
+  | { type: 'heading'; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'bullet'; text: string; nested: boolean };
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -226,57 +222,86 @@ const buildPdfHtml = (analysis: Analysis) => {
       .muted {
         color: #4b5563;
       }
+const normalizeSuggestionText = (value: string) =>
+  value
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+##\s+/g, '\n## ')
+    .replace(/\s+###\s+/g, '\n### ')
+    .trim();
 
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 12px;
-        margin-top: 24px;
-      }
+const parseSuggestionBlocks = (value: string): SuggestionBlock[] => {
+  const normalized = normalizeSuggestionText(value);
 
-      .card {
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        padding: 14px;
-      }
+  if (!normalized) return [];
 
-      .label {
-        color: #6b7280;
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
+  const lines = normalized
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0);
+  const blocks: SuggestionBlock[] = [];
 
-      .value {
-        margin-top: 8px;
-        font-size: 22px;
-        font-weight: 700;
-      }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const heading = trimmed.match(/^#{2,3}\s+(.+)$/);
+    const bullet = line.match(/^(\s*)[-*]\s+(.+)$/);
 
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-      }
+    if (heading) {
+      blocks.push({
+        type: 'heading',
+        text: heading[1] || '',
+      });
+      continue;
+    }
 
-      th,
-      td {
-        border-bottom: 1px solid #e5e7eb;
-        padding: 10px 8px;
-        text-align: left;
-        vertical-align: top;
-      }
+    if (bullet) {
+      blocks.push({
+        type: 'bullet',
+        text: bullet[2] || '',
+        nested: (bullet[1] || '').length > 0,
+      });
+      continue;
+    }
 
-      th {
-        color: #4b5563;
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
+    blocks.push({
+      type: 'paragraph',
+      text: trimmed.replace(/^#+\s*/, ''),
+    });
+  }
 
-      .severity {
-        font-weight: 700;
-      }
+  return blocks;
+};
+
+const renderInlineText = (value: string) => {
+  const parts = value.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+
+  return parts.map((part, index) => {
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code
+          key={`${part}-${index}`}
+          className="rounded border border-[var(--border)] bg-white/[0.055] px-1.5 py-0.5 font-mono text-xs text-white"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={`${part}-${index}`} className="font-semibold text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+};
+
+function AiSuggestionMarkdown({ value }: { value: string }) {
+  const blocks = parseSuggestionBlocks(value);
+
+  if (blocks.length === 0) return null;
 
       .markdown {
         line-height: 1.6;
@@ -396,36 +421,64 @@ const buildPdfHtml = (analysis: Analysis) => {
   </body>
 </html>`;
 };
+  return (
+    <div className="space-y-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4">
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          return (
+            <div
+              key={`${block.type}-${block.text}-${index}`}
+              className={index === 0 ? '' : 'border-t border-[var(--border)] pt-4'}
+            >
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
+                {block.text}
+              </h3>
+            </div>
+          );
+        }
 
-const exportAnalysisPdf = (analysis: Analysis) => {
-  const printWindow = window.open('', '_blank');
+        if (block.type === 'bullet') {
+          return (
+            <div
+              key={`${block.type}-${block.text}-${index}`}
+              className={`flex gap-3 text-sm leading-6 text-[var(--muted)] ${
+                block.nested ? 'ml-5' : ''
+              }`}
+            >
+              <span className="mt-[0.65rem] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
+              <p>{renderInlineText(block.text)}</p>
+            </div>
+          );
+        }
 
-  if (!printWindow) {
-    throw new Error('Unable to open the PDF export window.');
-  }
-
-  printWindow.document.open();
-  printWindow.document.write(buildPdfHtml(analysis));
-  printWindow.document.close();
-};
+        return (
+          <p
+            key={`${block.type}-${block.text}-${index}`}
+            className="text-sm leading-7 text-[var(--muted)]"
+          >
+            {renderInlineText(block.text)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 function ExportSwitch({ analysis }: { analysis: Analysis }) {
   const [format, setFormat] = useState<ExportFormat>('pdf');
   const [exportState, setExportState] = useState<ExportState>('idle');
   const isAnimating = exportState !== 'idle';
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (isAnimating) return;
 
     setExportState('exporting');
 
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
       try {
-        if (format === 'json') {
-          exportAnalysisJson(analysis);
-        } else {
-          exportAnalysisPdf(analysis);
-        }
+        const result = await exportAnalysisReport(analysis._id, format);
+
+        downloadBlob(result.blob, result.fileName);
 
         setExportState('done');
       } catch (caught) {
@@ -971,9 +1024,11 @@ const MarkdownContent = styled.div`
 
 export default function ResultDashboard({ user }: { user: AuthUser }) {
   const params = useParams<{ analysisId: string }>();
+  const router = useRouter();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [error, setError] = useState('');
+  const [rerunning, setRerunning] = useState(false);
 
   useEffect(() => {
     if (!params.analysisId) return;
@@ -995,6 +1050,24 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
 
     return analysis.smells[selectedIndex] || analysis.smells[0] || null;
   }, [analysis, selectedIndex]);
+
+  const handleRerun = async () => {
+    if (!analysis || rerunning) return;
+
+    setRerunning(true);
+    setError('');
+
+    try {
+      const nextAnalysis = await rerunAnalysis(analysis._id);
+
+      router.push(`/app/analyzing/${nextAnalysis._id}`);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Unable to rerun analysis.'
+      );
+      setRerunning(false);
+    }
+  };
 
   if (error) {
     return (
@@ -1068,6 +1141,14 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
               </p>
             </div>
             <div className="flex gap-2">
+              <button
+                className="secondary-action"
+                disabled={rerunning}
+                onClick={handleRerun}
+                type="button"
+              >
+                {rerunning ? 'Rerunning...' : 'Rerun analysis'}
+              </button>
               <ExportSwitch analysis={analysis} />
               <Link href="/app" className="primary-action">
                 Analyze another repo
@@ -1234,6 +1315,17 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                     </div>
                   ) : null}
                 </div>
+                    Suggestion
+                  </p>
+                    <p className="text-[var(--muted)]">
+                    {selectedSmell?.suggestion ||
+                      analysis.aiSuggestion ||
+                      'No remediation plan is required.'}
+                  </p>
+                </div>
+                {analysis.aiSuggestion ? (
+                  <AiSuggestionMarkdown value={analysis.aiSuggestion} />
+                ) : null}
               </div>
             </section>
           </div>

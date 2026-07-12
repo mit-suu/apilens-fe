@@ -54,6 +54,109 @@ const scoreGrade = (score: number) => {
 };
 
 const shortId = (id: string) => id.slice(-7);
+const ruleColumns = Array.from({ length: 9 }, (_, index) => index + 1);
+
+const escapeCell = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const normalizeEndpoint = (value: string) =>
+  value.toLowerCase().replace(/\s+/g, ' ').trim();
+
+const getEndpointLabel = (endpoint: Analysis['endpoints'][number]) =>
+  `${endpoint.method || 'GET'} ${endpoint.path || '/'}`.trim();
+
+const smellAppliesToEndpoint = (
+  smell: Analysis['smells'][number],
+  endpointLabel: string
+) => {
+  if (!endpointLabel) return true;
+  if (!smell.endpoints || smell.endpoints.length === 0) return true;
+
+  const normalizedEndpoint = normalizeEndpoint(endpointLabel);
+
+  return smell.endpoints.some((item) => {
+    const normalizedItem = normalizeEndpoint(item);
+
+    return (
+      normalizedItem === normalizedEndpoint
+      || normalizedItem.includes(normalizedEndpoint)
+      || normalizedEndpoint.includes(normalizedItem)
+    );
+  });
+};
+
+const buildExcelRows = (reports: Analysis[]) =>
+  reports.flatMap((analysis) => {
+    const endpoints = analysis.endpoints.length
+      ? analysis.endpoints
+      : [{ method: '', path: '', sourceFile: analysis.filePath }];
+
+    return endpoints.map((endpoint) => {
+      const endpointLabel = endpoint.method || endpoint.path
+        ? getEndpointLabel(endpoint)
+        : '';
+
+      return [
+        analysis.repoFullName,
+        analysis.branch,
+        analysis.filePath,
+        endpointLabel,
+        ...ruleColumns.map((ruleNumber) => {
+          const ruleId = `R${String(ruleNumber).padStart(2, '0')}`;
+          const hasRule = analysis.smells.some(
+            (smell) =>
+              smell.ruleId === ruleId && smellAppliesToEndpoint(smell, endpointLabel)
+          );
+
+          return hasRule ? 'x' : '';
+        }),
+      ];
+    });
+  });
+
+const exportReportsToExcel = (reports: Analysis[]) => {
+  const headers = [
+    'Tên repo',
+    'branch',
+    'API',
+    'endpoint',
+    ...ruleColumns.map((ruleNumber) => `Rule ${ruleNumber}`),
+  ];
+  const rows = buildExcelRows(reports);
+  const tableRows = [headers, ...rows]
+    .map(
+      (row) =>
+        `<tr>${row
+          .map((cell) => `<td style="mso-number-format:'\\@';">${escapeCell(cell)}</td>`)
+          .join('')}</tr>`
+    )
+    .join('');
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <table border="1">${tableRows}</table>
+  </body>
+</html>`;
+  const blob = new Blob(['\ufeff', html], {
+    type: 'application/vnd.ms-excel;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+
+  anchor.href = url;
+  anchor.download = `apilens-history-${new Date().toISOString().slice(0, 10)}.xls`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
 
 function HistorySkeleton() {
   return (
@@ -97,6 +200,9 @@ export default function HistoryView({ user }: { user: AuthUser }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [selectedAnalysisIds, setSelectedAnalysisIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -282,6 +388,51 @@ export default function HistoryView({ user }: { user: AuthUser }) {
     }, {});
   }, [visibleAnalyses]);
 
+  const selectedReports = useMemo(
+    () => analyses.filter((analysis) => selectedAnalysisIds.has(analysis._id)),
+    [analyses, selectedAnalysisIds]
+  );
+  const visibleIds = useMemo(
+    () => visibleAnalyses.map((analysis) => analysis._id),
+    [visibleAnalyses]
+  );
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selectedAnalysisIds.has(id));
+
+  const toggleAnalysisSelection = (analysisId: string) => {
+    setSelectedAnalysisIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(analysisId)) {
+        next.delete(analysisId);
+      } else {
+        next.add(analysisId);
+      }
+
+      return next;
+    });
+  };
+
+  const toggleVisibleSelection = () => {
+    setSelectedAnalysisIds((current) => {
+      const next = new Set(current);
+
+      if (allVisibleSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+
+      return next;
+    });
+  };
+
+  const handleExportExcel = () => {
+    if (selectedReports.length === 0) return;
+
+    exportReportsToExcel(selectedReports);
+  };
+
   const latestScan = analyses[0];
   const completedCount = analyses.filter((analysis) => analysis.status === 'done').length;
   const averageScore =
@@ -305,6 +456,9 @@ export default function HistoryView({ user }: { user: AuthUser }) {
               <nav className="hidden items-center gap-2 md:flex" aria-label="App navigation">
                 <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app">
                   Dashboard
+                </Link>
+                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app?source=url">
+                  Repo URL
                 </Link>
                 <Link className="rounded-full border border-[var(--border-strong)] bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white" href="/app/history">
                   History
@@ -421,6 +575,24 @@ export default function HistoryView({ user }: { user: AuthUser }) {
                   )}
                 </button>
                 <Link className="primary-action w-full sm:w-auto text-center" href="/app">
+              <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
+                <button
+                  className="secondary-action"
+                  disabled={visibleAnalyses.length === 0}
+                  onClick={toggleVisibleSelection}
+                  type="button"
+                >
+                  {allVisibleSelected ? 'Clear selection' : 'Select visible'}
+                </button>
+                <button
+                  className="secondary-action"
+                  disabled={selectedReports.length === 0}
+                  onClick={handleExportExcel}
+                  type="button"
+                >
+                  Export Excel ({selectedReports.length})
+                </button>
+                <Link className="primary-action" href="/app">
                   Analyze repository
                 </Link>
               </div>
@@ -474,58 +646,76 @@ export default function HistoryView({ user }: { user: AuthUser }) {
                     </div>
 
                     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-strong)]">
-                      {items.map((analysis) => (
-                        <Link
-                          key={analysis._id}
-                          className="group grid gap-4 border-b border-[var(--border)] p-4 transition last:border-b-0 hover:bg-white/[0.055] md:grid-cols-[minmax(0,1fr)_120px_120px_140px]"
-                          href={`/app/analyses/${analysis._id}`}
-                        >
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <time className="font-mono text-sm text-white" dateTime={analysis.createdAt}>
-                                {formatDate(analysis.createdAt)}
-                              </time>
-                              <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusTone[analysis.status].className}`}>
-                                {statusTone[analysis.status].label}
+                      {items.map((analysis) => {
+                        const selected = selectedAnalysisIds.has(analysis._id);
+
+                        return (
+                          <div
+                            key={analysis._id}
+                            className={`group grid gap-4 border-b border-[var(--border)] p-4 transition last:border-b-0 hover:bg-white/[0.055] md:grid-cols-[32px_minmax(0,1fr)_120px_120px_140px] ${
+                              selected ? 'bg-white/[0.04]' : ''
+                            }`}
+                          >
+                            <label className="flex items-start pt-1">
+                              <input
+                                aria-label={`Select report ${shortId(analysis._id)}`}
+                                checked={selected}
+                                className="h-4 w-4 rounded border-[var(--border)] bg-transparent accent-[var(--accent)]"
+                                onChange={() => toggleAnalysisSelection(analysis._id)}
+                                type="checkbox"
+                              />
+                            </label>
+
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <time className="font-mono text-sm text-white" dateTime={analysis.createdAt}>
+                                  {formatDate(analysis.createdAt)}
+                                </time>
+                                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusTone[analysis.status].className}`}>
+                                  {statusTone[analysis.status].label}
+                                </span>
+                              </div>
+                              <p className="mt-2 truncate font-mono text-xs text-[var(--muted)]">
+                                {analysis.filePath}
+                              </p>
+                              <p className="mt-1 text-xs text-[var(--subtle)]">
+                                Analysis id: {shortId(analysis._id)}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-sm text-[var(--muted)] md:justify-start">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                              <span className="truncate font-mono">{analysis.branch}</span>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className={`flex h-11 w-11 items-center justify-center rounded-full border text-sm font-semibold ${scoreTone(analysis.score)}`}>
+                                {analysis.status === 'done' ? analysis.score : '-'}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-white">
+                                  {analysis.status === 'done' ? scoreGrade(analysis.score) : 'Pending'}
+                                </p>
+                                <p className="text-xs text-[var(--subtle)]">
+                                  {analysis.smellCount} smells
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3 md:justify-end">
+                              <span className="text-xs text-[var(--muted)]">
+                                {analysis.endpointCount} endpoints
                               </span>
-                            </div>
-                            <p className="mt-2 truncate font-mono text-xs text-[var(--muted)]">
-                              {analysis.filePath}
-                            </p>
-                            <p className="mt-1 text-xs text-[var(--subtle)]">
-                              Analysis id: {shortId(analysis._id)}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-2 text-sm text-[var(--muted)] md:justify-start">
-                            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-                            <span className="truncate font-mono">{analysis.branch}</span>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <div className={`flex h-11 w-11 items-center justify-center rounded-full border text-sm font-semibold ${scoreTone(analysis.score)}`}>
-                              {analysis.status === 'done' ? analysis.score : '-'}
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-white">
-                                {analysis.status === 'done' ? scoreGrade(analysis.score) : 'Pending'}
-                              </p>
-                              <p className="text-xs text-[var(--subtle)]">
-                                {analysis.smellCount} smells
-                              </p>
+                              <Link
+                                className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--muted)] transition hover:border-[var(--border-strong)] hover:text-white"
+                                href={`/app/analyses/${analysis._id}`}
+                              >
+                                Open report
+                              </Link>
                             </div>
                           </div>
-
-                          <div className="flex items-center justify-between gap-3 md:justify-end">
-                            <span className="text-xs text-[var(--muted)]">
-                              {analysis.endpointCount} endpoints
-                            </span>
-                            <span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--muted)] transition group-hover:border-[var(--border-strong)] group-hover:text-white">
-                              Open report
-                            </span>
-                          </div>
-                        </Link>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                 ))}
