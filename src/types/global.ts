@@ -19,6 +19,11 @@ export type Repository = {
   defaultBranch: string;
   htmlUrl: string;
   updatedAt: string;
+  stargazers_count?: number;
+  forks_count?: number;
+  watchers_count?: number;
+  open_issues_count?: number;
+  language?: string | null;
 };
 
 export type Branch = {

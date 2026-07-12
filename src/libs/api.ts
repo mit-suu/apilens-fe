@@ -13,7 +13,10 @@ export const getCurrentUser = async () => {
   return data.user;
 };
 
-export const listRepositories = async () => {
+export const listRepositories = async (params?: {
+  page?: number;
+  limit?: number;
+}) => {
   const { data } = await http.get<{
     repositories: Repository[];
     pagination: {
@@ -24,7 +27,8 @@ export const listRepositories = async () => {
     };
   }>('/repos', {
     params: {
-      limit: 100,
+      page: params?.page || 1,
+      limit: params?.limit || 100,
     },
   });
 

@@ -7,6 +7,7 @@ import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import styled from 'styled-components';
 
 const severityStyle: Record<
@@ -37,7 +38,11 @@ const scoreColor = (score: number) => {
   return '#4ade80';
 };
 
-const getCategoryValue = (analysis: Analysis, key: string, fallback: number) => {
+const getCategoryValue = (
+  analysis: Analysis,
+  key: string,
+  fallback: number
+) => {
   const value = analysis.categoryScores?.[key];
 
   return typeof value === 'number' ? value : fallback;
@@ -73,6 +78,100 @@ const escapeHtml = (value: string | number | undefined | null) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+
+const renderInlineMarkdown = (value: string) =>
+  escapeHtml(value)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+const markdownToPdfHtml = (markdown: string) => {
+  const lines = markdown.split(/\r?\n/);
+  const html: string[] = [];
+  let listType: 'ol' | 'ul' | null = null;
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+
+  const closeList = () => {
+    if (!listType) return;
+
+    html.push(`</${listType}>`);
+    listType = null;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      closeList();
+
+      if (inCodeBlock) {
+        html.push(
+          `<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`
+        );
+        codeLines = [];
+      }
+
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
+
+    if (!trimmed) {
+      closeList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = (heading[1] ?? '').length + 2;
+      html.push(
+        `<h${level}>${renderInlineMarkdown(heading[2] ?? '')}</h${level}>`
+      );
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unordered) {
+      if (listType !== 'ul') {
+        closeList();
+        html.push('<ul>');
+        listType = 'ul';
+      }
+
+      html.push(`<li>${renderInlineMarkdown(unordered[1] ?? '')}</li>`);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      if (listType !== 'ol') {
+        closeList();
+        html.push('<ol>');
+        listType = 'ol';
+      }
+
+      html.push(`<li>${renderInlineMarkdown(ordered[1] ?? '')}</li>`);
+      continue;
+    }
+
+    closeList();
+    html.push(`<p>${renderInlineMarkdown(trimmed)}</p>`);
+  }
+
+  closeList();
+
+  if (inCodeBlock && codeLines.length) {
+    html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+  }
+
+  return html.join('\n');
+};
 
 const buildReportFileName = (analysis: Analysis, extension: ExportFormat) =>
   `${safeFileName(`${analysis.repoFullName}-${analysis.filePath}`) || 'apilens-report'}.${extension}`;
@@ -179,6 +278,42 @@ const buildPdfHtml = (analysis: Analysis) => {
         font-weight: 700;
       }
 
+      .markdown {
+        line-height: 1.6;
+      }
+
+      .markdown h3,
+      .markdown h4,
+      .markdown h5 {
+        margin: 16px 0 8px;
+      }
+
+      .markdown ul,
+      .markdown ol {
+        margin: 8px 0 12px 22px;
+        padding: 0;
+      }
+
+      .markdown li {
+        margin: 5px 0;
+      }
+
+      .markdown code {
+        background: #f3f4f6;
+        border-radius: 4px;
+        padding: 2px 4px;
+        font-family: Consolas, Monaco, monospace;
+        font-size: 0.9em;
+      }
+
+      .markdown pre {
+        background: #111827;
+        border-radius: 8px;
+        color: #f9fafb;
+        overflow-x: auto;
+        padding: 12px;
+      }
+
       @media print {
         main {
           padding: 24px;
@@ -248,7 +383,9 @@ const buildPdfHtml = (analysis: Analysis) => {
       }
 
       <h2>AI Remediation Plan</h2>
-      <p>${escapeHtml(analysis.aiSuggestion || 'No remediation plan is required.')}</p>
+      <div class="markdown">${markdownToPdfHtml(
+        analysis.aiSuggestion || 'No remediation plan is required.'
+      )}</div>
     </main>
     <script>
       window.addEventListener('load', () => {
@@ -326,7 +463,12 @@ function ExportSwitch({ analysis }: { analysis: Analysis }) {
         type="button"
         onClick={handleExport}
       >
-        <input checked={isAnimating} className="export-input" readOnly type="checkbox" />
+        <input
+          checked={isAnimating}
+          className="export-input"
+          readOnly
+          type="checkbox"
+        />
         <span className="export-circle">
           <svg
             aria-hidden="true"
@@ -346,7 +488,9 @@ function ExportSwitch({ analysis }: { analysis: Analysis }) {
           <span className="export-square" />
         </span>
         <span className="export-title">
-          {exportState === 'done' ? 'Exported' : `Export ${format.toUpperCase()}`}
+          {exportState === 'done'
+            ? 'Exported'
+            : `Export ${format.toUpperCase()}`}
         </span>
         <span className="sr-only">Export report as {format.toUpperCase()}</span>
       </button>
@@ -645,7 +789,9 @@ function ScoreRing({ score }: { score: number }) {
           strokeWidth="8"
         />
       </svg>
-      <span className="absolute text-3xl font-semibold text-white">{score}</span>
+      <span className="absolute text-3xl font-semibold text-white">
+        {score}
+      </span>
     </div>
   );
 }
@@ -666,9 +812,21 @@ function Radar({ analysis }: { analysis: Analysis }) {
   return (
     <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-[#30363d] bg-[#0e0e0e]/30 p-4">
       <svg className="h-full w-full opacity-80" viewBox="0 0 200 200">
-        <polygon className="radar-grid" fill="none" points="100,20 180,100 100,180 20,100" />
-        <polygon className="radar-grid" fill="none" points="100,40 160,100 100,160 40,100" />
-        <polygon className="radar-grid" fill="none" points="100,60 140,100 100,140 60,100" />
+        <polygon
+          className="radar-grid"
+          fill="none"
+          points="100,20 180,100 100,180 20,100"
+        />
+        <polygon
+          className="radar-grid"
+          fill="none"
+          points="100,40 160,100 100,160 40,100"
+        />
+        <polygon
+          className="radar-grid"
+          fill="none"
+          points="100,60 140,100 100,140 60,100"
+        />
         <line className="radar-grid" x1="100" x2="100" y1="20" y2="180" />
         <line className="radar-grid" x1="20" x2="180" y1="100" y2="100" />
         <polygon
@@ -690,6 +848,126 @@ function Radar({ analysis }: { analysis: Analysis }) {
     </div>
   );
 }
+
+function RemediationMarkdown({ children }: { children: string }) {
+  return (
+    <MarkdownContent>
+      <ReactMarkdown
+        components={{
+          a: ({ children: linkChildren, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer">
+              {linkChildren}
+            </a>
+          ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </MarkdownContent>
+  );
+}
+
+const MarkdownContent = styled.div`
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.75;
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  p {
+    margin: 0.65rem 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 1rem 0 0.45rem;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.35;
+  }
+
+  ul,
+  ol {
+    margin: 0.65rem 0 0.85rem;
+    padding-left: 1.15rem;
+  }
+
+  ul {
+    list-style: disc;
+  }
+
+  ol {
+    list-style: decimal;
+  }
+
+  li {
+    margin: 0.35rem 0;
+    padding-left: 0.15rem;
+  }
+
+  li::marker {
+    color: #7dd3fc;
+  }
+
+  strong {
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  em {
+    color: #d7dae0;
+  }
+
+  code {
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: rgba(125, 211, 252, 0.08);
+    color: #dbeafe;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      'Liberation Mono', 'Courier New', monospace;
+    font-size: 0.84em;
+    padding: 0.12rem 0.35rem;
+  }
+
+  pre {
+    margin: 0.85rem 0;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: #070b11;
+    padding: 0.85rem;
+  }
+
+  pre code {
+    border: 0;
+    background: transparent;
+    color: #e5e7eb;
+    padding: 0;
+  }
+
+  blockquote {
+    margin: 0.85rem 0;
+    border-left: 2px solid #7dd3fc;
+    color: #d7dae0;
+    padding-left: 0.85rem;
+  }
+
+  a {
+    color: #7dd3fc;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+`;
 
 export default function ResultDashboard({ user }: { user: AuthUser }) {
   const params = useParams<{ analysisId: string }>();
@@ -748,13 +1026,19 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
           <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-5">
             <div className="flex items-center gap-8">
               <Link href="/" className="text-lg font-semibold tracking-tight">
-            APILens
-          </Link>
+                APILens
+              </Link>
               <div className="hidden items-center gap-2 md:flex">
-                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app">
+                <Link
+                  className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white"
+                  href="/app"
+                >
                   Dashboard
                 </Link>
-                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app/history">
+                <Link
+                  className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white"
+                  href="/app/history"
+                >
                   History
                 </Link>
                 <span className="rounded-full border border-[var(--border-strong)] bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white">
@@ -769,7 +1053,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
               <UserBadge user={user} />
             </div>
           </div>
-      </nav>
+        </nav>
 
         <main className="mx-auto w-full max-w-7xl flex-grow px-5 py-8">
           <div className="motion-item mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -779,7 +1063,8 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                 Endpoint Integrity Report
               </h1>
               <p className="mt-3 text-sm text-[var(--muted)]">
-                {analysis.repoFullName} · {analysis.branch} · {analysis.filePath}
+                {analysis.repoFullName} · {analysis.branch} ·{' '}
+                {analysis.filePath}
               </p>
             </div>
             <div className="flex gap-2">
@@ -793,162 +1078,166 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
             <section className="glass-panel motion-item rounded-[var(--radius-lg)] p-5 lg:col-span-4">
               <div className="flex items-center gap-6">
-              <ScoreRing score={analysis.score} />
-              <div className="flex-grow space-y-2">
+                <ScoreRing score={analysis.score} />
+                <div className="flex-grow space-y-2">
                   <div className="flex justify-between border-b border-[var(--border)] py-2">
                     <span className="text-xs uppercase text-[var(--subtle)]">
-                    Endpoints
-                  </span>
+                      Endpoints
+                    </span>
                     <span className="font-mono text-sm text-[var(--text)]">
-                    {analysis.endpointCount}
-                  </span>
-                </div>
+                      {analysis.endpointCount}
+                    </span>
+                  </div>
                   <div className="flex justify-between border-b border-[var(--border)] py-2">
                     <span className="text-xs uppercase text-[var(--subtle)]">
-                    Smells
-                  </span>
+                      Smells
+                    </span>
                     <span className="font-mono text-sm text-[var(--text)]">
-                    {analysis.smellCount}
-                  </span>
-                </div>
+                      {analysis.smellCount}
+                    </span>
+                  </div>
                   <div className="flex justify-between border-b border-[var(--border)] py-2">
-                    <span className="text-xs uppercase text-[var(--subtle)]">Status</span>
+                    <span className="text-xs uppercase text-[var(--subtle)]">
+                      Status
+                    </span>
                     <span className="font-mono text-xs text-[var(--text)]">
                       {analysis.status}
-                  </span>
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
               <div className="mt-6">
                 <Radar analysis={analysis} />
               </div>
 
               <div className="mt-6 space-y-3">
-                <h2 className="eyebrow">
-                Detected Issues
-              </h2>
-              <div className="issue-scroll max-h-[400px] space-y-2 overflow-y-auto pr-1">
-                {analysis.smells.length === 0 ? (
+                <h2 className="eyebrow">Detected Issues</h2>
+                <div className="issue-scroll max-h-[400px] space-y-2 overflow-y-auto pr-1">
+                  {analysis.smells.length === 0 ? (
                     <div className="rounded-[var(--radius-md)] border border-[var(--border)] p-4 text-sm text-[var(--muted)]">
                       No design smells detected. Your selected file passed the
                       current rule set.
-                  </div>
-                ) : null}
+                    </div>
+                  ) : null}
 
-                {analysis.smells.map((smell, index) => {
-                  const style = severityStyle[smell.severity];
+                  {analysis.smells.map((smell, index) => {
+                    const style = severityStyle[smell.severity];
 
-                  return (
-                    <button
-                      key={`${smell.ruleId}-${index}`}
-                      aria-pressed={selectedIndex === index}
-                      className={`w-full rounded-[var(--radius-md)] border border-l-2 border-[var(--border)] bg-white/[0.035] p-4 text-left transition hover:border-[var(--border-strong)] hover:bg-white/[0.055] ${style.border} ${
-                        selectedIndex === index ? 'ring-1 ring-white/20' : ''
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedIndex(index)}
-                    >
-                      <div className="mb-1 flex items-start justify-between gap-3">
-                        <span className="text-lg font-medium text-white">
+                    return (
+                      <button
+                        key={`${smell.ruleId}-${index}`}
+                        aria-pressed={selectedIndex === index}
+                        className={`w-full rounded-[var(--radius-md)] border border-l-2 border-[var(--border)] bg-white/[0.035] p-4 text-left transition hover:border-[var(--border-strong)] hover:bg-white/[0.055] ${style.border} ${
+                          selectedIndex === index ? 'ring-1 ring-white/20' : ''
+                        }`}
+                        type="button"
+                        onClick={() => setSelectedIndex(index)}
+                      >
+                        <div className="mb-1 flex items-start justify-between gap-3">
+                          <span className="text-lg font-medium text-white">
                             {smell.smellName}
-                        </span>
-                        <span className={`rounded px-1 py-[2px] text-xs ${style.badge}`}>
-                          {smell.severity.toUpperCase()}
-                        </span>
-                      </div>
-                      <p className="text-sm text-[#c4c7ca]">
-                        {smell.endpoints[0] || analysis.filePath}
-                      </p>
-                    </button>
-                  );
-                })}
+                          </span>
+                          <span
+                            className={`rounded px-1 py-[2px] text-xs ${style.badge}`}
+                          >
+                            {smell.severity.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-[#c4c7ca]">
+                          {smell.endpoints[0] || analysis.filePath}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
             </section>
 
             <section className="motion-item space-y-5 lg:col-span-8">
               <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[#0b1017]">
                 <div className="flex items-center justify-between border-b border-[var(--border)] bg-white/[0.035] px-4 py-3">
                   <span className="text-xs uppercase tracking-widest text-[var(--subtle)]">
-                  Trace Logs : {analysis.filePath}
-                </span>
-                <div className="flex gap-2">
+                    Trace Logs : {analysis.filePath}
+                  </span>
+                  <div className="flex gap-2">
                     <div className="h-2 w-2 rounded-full bg-[var(--danger)]" />
                     <div className="h-2 w-2 rounded-full bg-[var(--border-strong)]" />
                     <div className="h-2 w-2 rounded-full bg-[var(--border-strong)]" />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1 overflow-x-auto p-4 font-mono text-sm leading-6">
-                {analysis.endpoints.slice(0, 12).map((endpoint, index) => {
-                  const active = selectedSmell?.endpoints.includes(
-                    `${endpoint.method || ''} ${endpoint.path || ''}`.trim()
-                  );
+                <div className="space-y-1 overflow-x-auto p-4 font-mono text-sm leading-6">
+                  {analysis.endpoints.slice(0, 12).map((endpoint, index) => {
+                    const active = selectedSmell?.endpoints.includes(
+                      `${endpoint.method || ''} ${endpoint.path || ''}`.trim()
+                    );
 
-                  return (
-                    <div
-                      key={`${endpoint.method}-${endpoint.path}-${index}`}
+                    return (
+                      <div
+                        key={`${endpoint.method}-${endpoint.path}-${index}`}
                         className={`flex gap-6 rounded px-2 py-0.5 transition ${
                           active
                             ? 'bg-[rgba(251,113,133,0.14)] text-[var(--danger)]'
                             : 'text-[var(--text)] hover:bg-white/[0.035]'
-                      }`}
-                    >
+                        }`}
+                      >
                         <span className="w-8 select-none text-right text-[var(--subtle)]">
-                        {String(index + 1).padStart(2, '0')}
-                      </span>
-                      <span>
-                        {endpoint.method || 'GET'} {endpoint.path || '/'}{' '}
-                        <span className="text-[#8b949e]">
-                          line {endpoint.lineNumber || '-'}
+                          {String(index + 1).padStart(2, '0')}
                         </span>
-                      </span>
-                    </div>
-                  );
-                })}
+                        <span>
+                          {endpoint.method || 'GET'} {endpoint.path || '/'}{' '}
+                          <span className="text-[#8b949e]">
+                            line {endpoint.lineNumber || '-'}
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
 
               <div className="glass-panel relative overflow-hidden rounded-[var(--radius-lg)] p-6">
-              <div className="mb-4 flex items-center justify-between gap-4">
+                <div className="mb-4 flex items-center justify-between gap-4">
                   <h2 className="eyebrow text-[var(--text)]">
-                  AI Remediation Plan
-                </h2>
-                {selectedSmell ? (
-                  <span
-                    className={`rounded px-2 py-1 text-xs ${
-                      severityStyle[selectedSmell.severity].badge
-                    }`}
-                  >
-                    {selectedSmell.severity}
-                  </span>
-                ) : null}
-              </div>
-              <div className="space-y-4 text-sm leading-7">
+                    AI Remediation Plan
+                  </h2>
+                  {selectedSmell ? (
+                    <span
+                      className={`rounded px-2 py-1 text-xs ${
+                        severityStyle[selectedSmell.severity].badge
+                      }`}
+                    >
+                      {selectedSmell.severity}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="space-y-4 text-sm leading-7">
                   <p className="text-[var(--text)]">
-                  {selectedSmell?.description ||
-                    'APILens did not detect actionable issues in the selected file.'}
-                </p>
+                    {selectedSmell?.description ||
+                      'APILens did not detect actionable issues in the selected file.'}
+                  </p>
                   <div className="border-l border-[var(--border)] pl-4">
                     <p className="mb-2 text-xs uppercase tracking-widest text-[var(--subtle)]">
-                    Suggestion
-                  </p>
-                    <p className="text-[var(--muted)]">
-                    {selectedSmell?.suggestion ||
-                      analysis.aiSuggestion ||
-                      'No remediation plan is required.'}
-                  </p>
-                </div>
-                {analysis.aiSuggestion ? (
-                    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4 text-[var(--muted)]">
-                    {analysis.aiSuggestion}
+                      Suggestion
+                    </p>
+                    <RemediationMarkdown>
+                      {selectedSmell?.suggestion ||
+                        analysis.aiSuggestion ||
+                        'No remediation plan is required.'}
+                    </RemediationMarkdown>
                   </div>
-                ) : null}
+                  {analysis.aiSuggestion ? (
+                    <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4">
+                      <RemediationMarkdown>
+                        {analysis.aiSuggestion}
+                      </RemediationMarkdown>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
             </section>
-        </div>
-      </main>
+          </div>
+        </main>
       </div>
     </MotionScope>
   );

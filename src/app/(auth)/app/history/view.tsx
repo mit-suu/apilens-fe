@@ -2,8 +2,8 @@
 
 import MotionScope from '@/components/MotionScope';
 import UserBadge from '@/components/UserBadge';
-import { listMyAnalyses } from '@/libs/api';
-import { type Analysis, type AuthUser } from '@/types/global';
+import { listMyAnalyses, listRepositories } from '@/libs/api';
+import { type Analysis, type AuthUser, type Repository } from '@/types/global';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -96,6 +96,7 @@ export default function HistoryView({ user }: { user: AuthUser }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -142,6 +143,120 @@ export default function HistoryView({ user }: { user: AuthUser }) {
       );
     } finally {
       setLoadingMore(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      // 1. Fetch all repositories of the user
+      let allRepos: Repository[] = [];
+      let repoPage = 1;
+      const repoLimit = 100;
+      while (true) {
+        const items = await listRepositories({ page: repoPage, limit: repoLimit });
+        allRepos = [...allRepos, ...items];
+        if (items.length < repoLimit) break;
+        repoPage += 1;
+      }
+
+      // Create a lookup map for repo stats
+      const repoMap = new Map<string, Repository>();
+      allRepos.forEach((r) => {
+        repoMap.set(r.fullName, r);
+      });
+
+      // 2. Fetch all user analyses (history)
+      let allAnalyses: Analysis[] = [];
+      let analysisPage = 1;
+      const analysisLimit = 100;
+      while (true) {
+        const items = await listMyAnalyses({ page: analysisPage, limit: analysisLimit });
+        allAnalyses = [...allAnalyses, ...items];
+        if (items.length < analysisLimit) break;
+        analysisPage += 1;
+      }
+
+      // 3. Construct rows for Excel export
+      // Each row represents a smell/issue detected in the history
+      const rows = [];
+      for (const analysis of allAnalyses) {
+        if (analysis.status !== 'done') continue;
+
+        const repoInfo = repoMap.get(analysis.repoFullName);
+        const stargazers = repoInfo?.stargazers_count ?? 0;
+        const forks = repoInfo?.forks_count ?? 0;
+        const watchers = repoInfo?.watchers_count ?? 0;
+        const openIssues = repoInfo?.open_issues_count ?? 0;
+        const lang = repoInfo?.language ?? 'N/A';
+
+        if (analysis.smells && analysis.smells.length > 0) {
+          for (const smell of analysis.smells) {
+            rows.push({
+              'Repository': analysis.repoFullName,
+              'Branch': analysis.branch,
+              'API / File Path': analysis.filePath,
+              'Rule ID': smell.ruleId || 'N/A',
+              'Rule Name': smell.smellName || 'N/A',
+              'Severity': smell.severity || 'N/A',
+              'Endpoint': smell.endpoints && smell.endpoints.length > 0
+                ? smell.endpoints.join(', ')
+                : 'N/A',
+              'Số sao': stargazers,
+              'Số fork': forks,
+              'Số watcher': watchers,
+              'Số issue mở': openIssues,
+              'Ngôn ngữ chính': lang,
+            });
+          }
+        } else {
+          rows.push({
+            'Repository': analysis.repoFullName,
+            'Branch': analysis.branch,
+            'API / File Path': analysis.filePath,
+            'Rule ID': 'N/A',
+            'Rule Name': 'No design smells detected',
+            'Severity': 'N/A',
+            'Endpoint': 'N/A',
+            'Số sao': stargazers,
+            'Số fork': forks,
+            'Số watcher': watchers,
+            'Số issue mở': openIssues,
+            'Ngôn ngữ chính': lang,
+          });
+        }
+      }
+
+      if (rows.length === 0) {
+        alert('Không có dữ liệu lịch sử hợp lệ để xuất.');
+        return;
+      }
+
+      // 4. Generate and write the Excel workbook
+      const XLSX = await import('xlsx');
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Lịch sử phân tích');
+
+      // Auto-fit column widths
+      const maxLens = rows.reduce<Record<string, number>>((acc, row) => {
+        Object.entries(row).forEach(([key, val]) => {
+          const length = String(val ?? '').length;
+          acc[key] = Math.max(acc[key] || 10, length, key.length);
+        });
+        return acc;
+      }, {});
+
+      worksheet['!cols'] = Object.keys(maxLens).map((key) => ({
+        wch: (maxLens[key] || 10) + 2,
+      }));
+
+      XLSX.writeFile(workbook, 'apilens-history-report.xlsx');
+    } catch (err) {
+      console.error(err);
+      alert('Đã xảy ra lỗi khi xuất file Excel.');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -281,9 +396,34 @@ export default function HistoryView({ user }: { user: AuthUser }) {
                   generated report without running a new analysis.
                 </p>
               </div>
-              <Link className="primary-action w-full md:w-auto" href="/app">
-                Analyze repository
-              </Link>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center w-full md:w-auto">
+                <button
+                  className="secondary-action w-full sm:w-auto flex items-center justify-center gap-2 font-medium"
+                  type="button"
+                  disabled={exporting}
+                  onClick={handleExportExcel}
+                >
+                  {exporting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span>Exporting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span>Export Excel</span>
+                    </>
+                  )}
+                </button>
+                <Link className="primary-action w-full sm:w-auto text-center" href="/app">
+                  Analyze repository
+                </Link>
+              </div>
             </div>
 
             <div className="motion-item mb-5 lg:hidden">
