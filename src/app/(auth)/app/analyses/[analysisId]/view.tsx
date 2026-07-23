@@ -1,8 +1,8 @@
 'use client';
 
 import MotionScope from '@/components/MotionScope';
-import UserBadge from '@/components/UserBadge';
-import { exportAnalysisReport, getAnalysis, rerunAnalysis } from '@/libs/api';
+import AppHeader from '@/components/AppHeader';
+import { exportAnalysisReport, getAnalysis, rerunAnalysis, generateAiFix, createPullRequest } from '@/libs/api';
 import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -603,6 +603,83 @@ function Radar({ analysis }: { analysis: Analysis }) {
   );
 }
 
+interface DiffLine {
+  type: 'added' | 'removed' | 'unchanged';
+  content: string;
+  leftLineNumber?: number;
+  rightLineNumber?: number;
+}
+
+function computeSimpleDiff(original: string, modified: string): DiffLine[] {
+  const left = original.split('\n');
+  const right = modified.split('\n');
+  
+  const dp: number[][] = Array.from({ length: left.length + 1 }, () =>
+    Array(right.length + 1).fill(0)
+  );
+
+  for (let i = 1; i <= left.length; i++) {
+    const leftLine = left[i - 1];
+    const dpRow = dp[i];
+    const prevDpRow = dp[i - 1];
+    if (leftLine === undefined || !dpRow || !prevDpRow) continue;
+
+    for (let j = 1; j <= right.length; j++) {
+      const rightLine = right[j - 1];
+      if (rightLine === undefined) continue;
+
+      if (leftLine === rightLine) {
+        dpRow[j] = (prevDpRow[j - 1] || 0) + 1;
+      } else {
+        dpRow[j] = Math.max(prevDpRow[j] || 0, dpRow[j - 1] || 0);
+      }
+    }
+  }
+
+  const diff: DiffLine[] = [];
+  let i = left.length;
+  let j = right.length;
+
+  while (i > 0 || j > 0) {
+    const leftLine = left[i - 1];
+    const rightLine = right[j - 1];
+
+    const currentDpRow = dp[i];
+    const prevDpRow = dp[i - 1];
+
+    const valLeft = leftLine ?? '';
+    const valRight = rightLine ?? '';
+
+    if (i > 0 && j > 0 && leftLine !== undefined && rightLine !== undefined && leftLine === rightLine) {
+      diff.unshift({
+        type: 'unchanged',
+        content: valLeft,
+        leftLineNumber: i,
+        rightLineNumber: j,
+      });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || (currentDpRow?.[j - 1] ?? 0) >= (prevDpRow?.[j] ?? 0))) {
+      diff.unshift({
+        type: 'added',
+        content: valRight,
+        rightLineNumber: j,
+      });
+      j--;
+    } else {
+      diff.unshift({
+        type: 'removed',
+        content: valLeft,
+        leftLineNumber: i,
+      });
+      i--;
+    }
+  }
+
+  return diff;
+}
+
+
 export default function ResultDashboard({ user }: { user: AuthUser }) {
   const params = useParams<{ analysisId: string }>();
   const router = useRouter();
@@ -610,6 +687,44 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [error, setError] = useState('');
   const [rerunning, setRerunning] = useState(false);
+  const [fixingState, setFixingState] = useState<'idle' | 'generating' | 'diff' | 'creating-pr' | 'pr-created' | 'error'>('idle');
+  const [originalCode, setOriginalCode] = useState('');
+  const [fixedCode, setFixedCode] = useState('');
+  const [prUrl, setPrUrl] = useState('');
+  const [fixError, setFixError] = useState('');
+
+  useEffect(() => {
+    setFixingState('idle');
+  }, [selectedIndex]);
+
+  const handleGenerateFix = async () => {
+    if (!analysis) return;
+    setFixingState('generating');
+    setFixError('');
+    try {
+      const result = await generateAiFix(analysis._id, selectedIndex);
+      setOriginalCode(result.originalContent);
+      setFixedCode(result.fixedContent);
+      setFixingState('diff');
+    } catch (caught) {
+      setFixError(caught instanceof Error ? caught.message : 'Unable to generate code fix.');
+      setFixingState('error');
+    }
+  };
+
+  const handleCreatePullRequest = async () => {
+    if (!analysis) return;
+    setFixingState('creating-pr');
+    setFixError('');
+    try {
+      const result = await createPullRequest(analysis._id, selectedIndex, fixedCode);
+      setPrUrl(result.pullRequestUrl);
+      setFixingState('pr-created');
+    } catch (caught) {
+      setFixError(caught instanceof Error ? caught.message : 'Failed to create Pull Request.');
+      setFixingState('error');
+    }
+  };
 
   useEffect(() => {
     if (!params.analysisId) return;
@@ -676,32 +791,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
   return (
     <MotionScope>
       <div className="app-shell flex min-h-screen flex-col">
-        <nav className="border-b border-[var(--border)]">
-          <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-5">
-            <div className="flex items-center gap-8">
-              <Link href="/" className="text-lg font-semibold tracking-tight">
-            APILens
-          </Link>
-              <div className="hidden items-center gap-2 md:flex">
-                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app">
-                  Dashboard
-                </Link>
-                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app/history">
-                  History
-                </Link>
-                <span className="rounded-full border border-[var(--border-strong)] bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white">
-                  Report
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link href="/app" className="secondary-action">
-                New analysis
-              </Link>
-              <UserBadge user={user} />
-            </div>
-          </div>
-      </nav>
+        <AppHeader user={user} />
 
         <main className="mx-auto w-full max-w-7xl flex-grow px-5 py-8">
           <div className="motion-item mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -882,6 +972,134 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                 {analysis.aiSuggestion ? (
                   <AiSuggestionMarkdown value={analysis.aiSuggestion} />
                 ) : null}
+
+                {/* AI Generate Fix Flow */}
+                {selectedSmell && (
+                  <div className="border-t border-[var(--border)] pt-4 mt-6">
+                    {fixingState === 'idle' && (
+                      <button
+                        className="primary-action flex items-center gap-2"
+                        onClick={handleGenerateFix}
+                        type="button"
+                      >
+                        <span className="text-base">✨</span> Generate AI Fix
+                      </button>
+                    )}
+
+                    {fixingState === 'generating' && (
+                      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3 py-4">
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                          <p className="text-sm font-medium text-white">AI is drafting a fix...</p>
+                          <p className="text-xs text-[var(--muted)]">This will modify your source file and show you a preview.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {fixingState === 'diff' && (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
+                            Diff Preview
+                          </h3>
+                          <span className="text-xs text-[var(--subtle)]">Green: Additions | Red: Deletions</span>
+                        </div>
+                        <div className="max-h-[300px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[#030712] p-3 font-mono text-[11px] leading-5 text-slate-300">
+                          {computeSimpleDiff(originalCode, fixedCode).map((line, idx) => {
+                            const bg = line.type === 'added' ? 'bg-[rgba(74,222,128,0.15)] text-green-400 border-l-2 border-green-500 px-1' :
+                                       line.type === 'removed' ? 'bg-[rgba(251,113,133,0.15)] text-red-400 border-l-2 border-red-500 px-1 line-through' :
+                                       'text-slate-400 px-1 opacity-70';
+                            return (
+                              <div key={idx} className={`flex gap-4 ${bg}`}>
+                                <span className="w-8 select-none text-right text-[var(--subtle)] opacity-40">
+                                  {line.type === 'added' ? line.rightLineNumber : line.leftLineNumber || ''}
+                                </span>
+                                <span className="whitespace-pre">{line.content}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            className="primary-action flex-grow flex items-center justify-center gap-2"
+                            onClick={handleCreatePullRequest}
+                            type="button"
+                          >
+                            Approve & Create Pull Request
+                          </button>
+                          <button
+                            className="secondary-action"
+                            onClick={() => setFixingState('idle')}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {fixingState === 'creating-pr' && (
+                      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3 py-4">
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                          <p className="text-sm font-medium text-white">Creating branch & committing changes...</p>
+                          <p className="text-xs text-[var(--muted)]">Opening Pull Request on GitHub...</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {fixingState === 'pr-created' && (
+                      <div className="rounded-[var(--radius-md)] border border-[#23ae23]/30 bg-[#23ae23]/10 p-5 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <span className="text-3xl">🎉</span>
+                          <h3 className="text-lg font-semibold text-white">Pull Request Created!</h3>
+                          <p className="text-xs text-[var(--muted)] max-w-sm">
+                            APILens has successfully created a new branch and opened a Pull Request for your repository.
+                          </p>
+                          <a
+                            href={prUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="primary-action mt-2 inline-flex items-center justify-center gap-2"
+                          >
+                            Open Pull Request on GitHub ↗
+                          </a>
+                          <button
+                            className="text-xs text-[var(--muted)] underline mt-3 hover:text-white"
+                            onClick={() => setFixingState('idle')}
+                            type="button"
+                          >
+                            Fix another issue
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {fixingState === 'error' && (
+                      <div className="rounded-[var(--radius-md)] border border-red-500/30 bg-red-500/10 p-4">
+                        <p className="text-sm font-medium text-red-400">Failed to generate fix:</p>
+                        <p className="text-xs text-red-300/80 mt-1">{fixError}</p>
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            className="primary-action text-xs"
+                            onClick={handleGenerateFix}
+                            type="button"
+                          >
+                            Try Again
+                          </button>
+                          <button
+                            className="secondary-action text-xs"
+                            onClick={() => setFixingState('idle')}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             </section>

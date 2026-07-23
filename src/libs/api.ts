@@ -129,3 +129,96 @@ export const exportAnalysisReport = async (
     fileName: fileName || `apilens-report.${format}`,
   };
 };
+
+export const generateAiFix = async (analysisId: string, smellIndex: number) => {
+  const { data } = await http.post<{
+    success: boolean;
+    originalContent: string;
+    fixedContent: string;
+    filePath: string;
+    smellIndex: number;
+  }>(`/analyses/${analysisId}/generate-fix`, {
+    smellIndex,
+  });
+
+  return data;
+};
+
+export const createPullRequest = async (
+  analysisId: string,
+  smellIndex: number,
+  fixedContent: string
+) => {
+  const { data } = await http.post<{
+    success: boolean;
+    pullRequestUrl: string;
+    branch: string;
+  }>(`/analyses/${analysisId}/create-pr`, {
+    smellIndex,
+    fixedContent,
+  });
+
+  return data;
+};
+
+export type Order = {
+  _id: string;
+  userId: string;
+  plan: 'pro' | 'enterprise';
+  amount: number;
+  status: 'pending' | 'paid' | 'failed' | 'cancelled';
+  paymentOrderId?: string;
+  paymentReferenceCode?: string;
+  paymentDescription?: string;
+  qrCodeUrl?: string;
+  paidAt?: string;
+  createdAt: string;
+};
+
+export const createCheckoutOrder = async (plan: 'pro' | 'enterprise') => {
+  const { data } = await http.post<{ success: boolean; order: Order }>('/orders/checkout', { plan });
+  return data.order;
+};
+
+export const getOrderStatus = async (orderId: string) => {
+  const { data } = await http.get<{ success: boolean; order: Order }>(`/orders/${orderId}/status`);
+  return data.order;
+};
+
+export const getMyOrders = async () => {
+  const { data } = await http.get<{ success: boolean; orders: Order[] }>('/orders/my-orders');
+  return data.orders;
+};
+
+export const getAdminStats = async () => {
+  const { data } = await http.get<{
+    success: boolean;
+    stats: {
+      totalUsers: number;
+      totalAnalyses: number;
+      totalIssues: number;
+      averageScore: number;
+      totalRevenue: number;
+      paidOrdersCount: number;
+      totalAiRequests: number;
+      estimatedTokens: number;
+      estimatedCostUsd: number;
+    };
+  }>('/admin/stats');
+  return data.stats;
+};
+
+export const getAdminUsers = async () => {
+  const { data } = await http.get<{ success: boolean; users: AuthUser[] }>('/admin/users');
+  return data.users;
+};
+
+export const updateAdminUser = async (userId: string, payload: { role?: string; plan?: string }) => {
+  const { data } = await http.put<{ success: boolean; user: AuthUser }>(`/admin/users/${userId}`, payload);
+  return data.user;
+};
+
+export const deleteAdminUser = async (userId: string) => {
+  const { data } = await http.delete<{ success: boolean; message: string }>(`/admin/users/${userId}`);
+  return data;
+};

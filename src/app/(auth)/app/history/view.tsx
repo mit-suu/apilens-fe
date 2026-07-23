@@ -1,7 +1,7 @@
 'use client';
 
 import MotionScope from '@/components/MotionScope';
-import UserBadge from '@/components/UserBadge';
+import AppHeader from '@/components/AppHeader';
 import { listMyAnalyses } from '@/libs/api';
 import { type Analysis, type AuthUser } from '@/types/global';
 import Link from 'next/link';
@@ -332,32 +332,7 @@ export default function HistoryView({ user }: { user: AuthUser }) {
   return (
     <MotionScope>
       <div className="app-shell flex min-h-screen flex-col">
-        <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[rgba(9,13,20,0.78)] backdrop-blur-xl">
-          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5">
-            <div className="flex items-center gap-8">
-              <Link href="/" className="text-lg font-semibold tracking-tight">
-                APILens
-              </Link>
-              <nav className="hidden items-center gap-2 md:flex" aria-label="App navigation">
-                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app">
-                  Dashboard
-                </Link>
-                <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app?source=url">
-                  Repo URL
-                </Link>
-                <Link className="rounded-full border border-[var(--border-strong)] bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white" href="/app/history">
-                  History
-                </Link>
-              </nav>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link className="secondary-action hidden sm:inline-flex" href="/app">
-                New analysis
-              </Link>
-              <UserBadge user={user} />
-            </div>
-          </div>
-        </header>
+        <AppHeader user={user} activeTab="history" />
 
         <main className="mx-auto grid w-full max-w-7xl flex-grow gap-6 px-5 py-8 lg:grid-cols-[270px_minmax(0,1fr)]">
           <aside className="motion-item hidden lg:block">

@@ -4,8 +4,16 @@ export type AuthUser = {
   email?: string;
   avatarUrl?: string;
   role: 'user' | 'admin';
+  plan?: 'free' | 'pro' | 'enterprise';
+  credits?: number;
+  maxCredits?: number;
+  aiCallsCount?: number;
+  totalAiTokens?: number;
+  totalAiCostUsd?: number;
+  planExpiresAt?: string;
   providers: {
     github: boolean;
+    username?: string;
   };
   createdAt: string;
   updatedAt: string;

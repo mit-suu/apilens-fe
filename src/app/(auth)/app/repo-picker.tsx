@@ -2,7 +2,7 @@
 
 import ApilensFooter from '@/components/ApilensFooter';
 import MotionScope from '@/components/MotionScope';
-import UserBadge from '@/components/UserBadge';
+import AppHeader from '@/components/AppHeader';
 import {
   getRepositoryTree,
   listBranches,
@@ -15,7 +15,7 @@ import {
   type DetectedFile,
   type Repository,
 } from '@/types/global';
-import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
@@ -44,55 +44,6 @@ const getErrorMessage = (caught: unknown, fallback: string) => {
   return caught instanceof Error ? caught.message : fallback;
 };
 
-function AppHeader({
-  user,
-  sourceMode,
-  onSourceModeChange,
-}: {
-  user: AuthUser;
-  sourceMode: 'repos' | 'url';
-  onSourceModeChange: (mode: 'repos' | 'url') => void;
-}) {
-  const navButtonClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-sm transition ${
-      active
-        ? 'border border-[var(--border-strong)] bg-white/[0.06] font-medium text-white'
-        : 'text-[var(--muted)] hover:bg-white/[0.06] hover:text-white'
-    }`;
-
-  return (
-    <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[rgba(9,13,20,0.78)] backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5">
-        <div className="flex min-w-0 items-center gap-8">
-          <Link href="/" className="text-lg font-semibold tracking-tight">
-            APILens
-          </Link>
-          <nav className="hidden items-center gap-2 md:flex" aria-label="App navigation">
-            <button
-              className={navButtonClass(sourceMode === 'repos')}
-              onClick={() => onSourceModeChange('repos')}
-              type="button"
-            >
-              Dashboard
-            </button>
-            <button
-              className={navButtonClass(sourceMode === 'url')}
-              onClick={() => onSourceModeChange('url')}
-              type="button"
-            >
-              Repo URL
-            </button>
-            <Link className="rounded-full px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white" href="/app/history">
-              History
-            </Link>
-          </nav>
-        </div>
-        <UserBadge user={user} />
-      </div>
-    </header>
-  );
-}
-
 function StepIndicator({
   selectedRepo,
   selectedBranch,
@@ -111,11 +62,10 @@ function StepIndicator({
       {steps.map((step, index) => (
         <div key={step.label} className="flex items-center gap-3">
           <span
-            className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${
-              step.active
-                ? 'border border-[var(--border-strong)] bg-white/[0.06] text-white'
-                : 'border border-[var(--border)] text-[var(--subtle)]'
-            }`}
+            className={`rounded-full px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] ${step.active
+              ? 'border border-[var(--border-strong)] bg-white/[0.06] text-white'
+              : 'border border-[var(--border)] text-[var(--subtle)]'
+              }`}
           >
             {step.label}
           </span>
@@ -331,6 +281,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
     <MotionScope>
       <div className="app-shell flex min-h-screen flex-col">
         <AppHeader
+          activeTab="scan"
           onSourceModeChange={setSourceMode}
           sourceMode={sourceMode}
           user={user}
@@ -358,7 +309,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
               className="motion-item rounded-[var(--radius-md)] border border-[rgba(251,113,133,0.32)] bg-[rgba(251,113,133,0.1)] p-4 text-sm text-[var(--danger)]"
               role="alert"
             >
-                {error}
+              {error}
             </div>
           ) : null}
 
@@ -444,9 +395,8 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                         <button
                           key={repo.id}
                           aria-pressed={active}
-                          className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] ${
-                            active ? 'bg-white/[0.075]' : ''
-                          }`}
+                          className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] ${active ? 'bg-white/[0.075]' : ''
+                            }`}
                           type="button"
                           onClick={() => loadRepoDetails(repo)}
                         >
@@ -524,9 +474,8 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                             <button
                               key={branch.name}
                               aria-pressed={active}
-                              className={`group flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] disabled:cursor-wait disabled:opacity-70 ${
-                                active ? 'bg-white/[0.075]' : ''
-                              }`}
+                              className={`group flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] disabled:cursor-wait disabled:opacity-70 ${active ? 'bg-white/[0.075]' : ''
+                                }`}
                               disabled={analyzing}
                               type="button"
                               onClick={() => changeBranch(branch.name)}
@@ -618,9 +567,8 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                                 <button
                                   key={file.path}
                                   aria-pressed={active}
-                                  className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] disabled:opacity-50 ${
-                                    active ? 'bg-white/[0.075]' : ''
-                                  }`}
+                                  className={`flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left transition hover:bg-white/[0.055] disabled:opacity-50 ${active ? 'bg-white/[0.075]' : ''
+                                    }`}
                                   disabled={analyzing}
                                   type="button"
                                   onClick={() => setSelectedFile(file)}
@@ -654,8 +602,8 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
                       >
                         {analyzing ? (
                           <>
-                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            Initializing pipeline...
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                            <span>Đang quét...</span>
                           </>
                         ) : (
                           'Start Analysis'
@@ -676,7 +624,7 @@ export default function RepoPicker({ user }: { user: AuthUser }) {
               rel="noreferrer"
               target="_blank"
             >
-                Check GitHub permissions
+              Check GitHub permissions
             </a>
           </p>
         </main>
