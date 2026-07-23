@@ -6,8 +6,10 @@ import { exportAnalysisReport, getAnalysis, rerunAnalysis, generateAiFix, create
 import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import styled from 'styled-components';
+import { useRealtimeAnalysis } from '@/hooks/useRealtimeAnalysis';
+import { useToast } from '@/components/RealtimeToast';
 
 const severityStyle: Record<
   Smell['severity'],
@@ -692,6 +694,29 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
   const [fixedCode, setFixedCode] = useState('');
   const [prUrl, setPrUrl] = useState('');
   const [fixError, setFixError] = useState('');
+
+  const { addToast } = useToast();
+
+  // Watch this specific analysis for realtime status/score updates
+  const handleAnalysisUpdated = useCallback(
+    (payload: { analysis: Partial<Analysis> & { _id: string } }) => {
+      setAnalysis((prev) =>
+        prev ? { ...prev, ...payload.analysis } : prev
+      );
+      if (payload.analysis.status === 'done') {
+        addToast({ type: 'success', message: 'Analysis updated', detail: `Score: ${payload.analysis.score}/100` });
+      } else if (payload.analysis.status === 'failed') {
+        addToast({ type: 'error', message: 'Analysis failed', detail: payload.analysis.errorMessage });
+      }
+    },
+    [addToast]
+  );
+
+  useRealtimeAnalysis({
+    onUpdated: handleAnalysisUpdated,
+    // Only react to events for the analysis currently displayed
+    watchId: params.analysisId,
+  });
 
   useEffect(() => {
     setFixingState('idle');

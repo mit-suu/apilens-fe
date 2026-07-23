@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import PaymentModal from '@/components/PaymentModal';
 import { getCurrentUser, listMyAnalyses } from '@/libs/api';
 import { type Analysis, type AuthUser, type Smell } from '@/types/global';
@@ -29,6 +29,9 @@ import {
 } from 'lucide-react';
 
 import AppHeader from '@/components/AppHeader';
+import { useRealtimeAnalysis, patchAnalysisList } from '@/hooks/useRealtimeAnalysis';
+import { useRealtimeUser } from '@/hooks/useRealtimeUser';
+import { useToast } from '@/components/RealtimeToast';
 
 export default function UserDashboard() {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -36,6 +39,8 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'pro' | 'enterprise'>('pro');
+
+  const { addToast } = useToast();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -53,6 +58,85 @@ export default function UserDashboard() {
 
     fetchData();
   }, []);
+
+  // --- Realtime: analysis events ---
+  const handleAnalysisCreated = useCallback(
+    (payload: { analysis: Partial<Analysis> & { _id: string } }) => {
+      // Prepend new analysis and keep list sorted newest-first
+      setAnalyses((prev) => {
+        if (prev.some((a) => a._id === payload.analysis._id)) return prev;
+        return [payload.analysis as Analysis, ...prev];
+      });
+      addToast({
+        type: 'info',
+        message: 'New scan started',
+        detail: payload.analysis.repoFullName,
+      });
+    },
+    [addToast]
+  );
+
+  const handleAnalysisUpdated = useCallback(
+    (payload: { analysis: Partial<Analysis> & { _id: string } }) => {
+      setAnalyses((prev) => patchAnalysisList(prev, payload.analysis));
+      if (payload.analysis.status === 'done') {
+        addToast({
+          type: 'success',
+          message: 'Scan complete',
+          detail: `Score: ${payload.analysis.score}/100`,
+        });
+      } else if (payload.analysis.status === 'failed') {
+        addToast({ type: 'error', message: 'Scan failed', detail: payload.analysis.repoFullName });
+      }
+    },
+    [addToast]
+  );
+
+  const handleAnalysisDeleted = useCallback(
+    (payload: { analysisId: string }) => {
+      setAnalyses((prev) => prev.filter((a) => a._id !== payload.analysisId));
+    },
+    []
+  );
+
+  // --- Realtime: user events (plan/credits updates) ---
+  const handleUserUpdated = useCallback(
+    (payload: { plan?: AuthUser['plan']; credits?: number; maxCredits?: number; planExpiresAt?: string }) => {
+      setUser((prev) =>
+        prev ? { ...prev, ...payload } : prev
+      );
+      addToast({
+        type: 'success',
+        message: 'Account updated',
+        detail: payload.plan ? `Plan: ${payload.plan.toUpperCase()}` : 'Credits updated',
+      });
+    },
+    [addToast]
+  );
+
+  const handleOrderUpdated = useCallback(
+    (payload: { plan: string; status: string }) => {
+      if (payload.status === 'paid') {
+        addToast({
+          type: 'success',
+          message: 'Payment confirmed!',
+          detail: `Plan upgraded to ${payload.plan.toUpperCase()}`,
+        });
+      }
+    },
+    [addToast]
+  );
+
+  useRealtimeAnalysis({
+    onCreated: handleAnalysisCreated,
+    onUpdated: handleAnalysisUpdated,
+    onDeleted: handleAnalysisDeleted,
+  });
+
+  useRealtimeUser({
+    onUserUpdated: handleUserUpdated,
+    onOrderUpdated: handleOrderUpdated,
+  });
 
   const handleUpgradeSuccess = async () => {
     setIsPaymentOpen(false);

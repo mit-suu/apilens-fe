@@ -8,10 +8,11 @@ const getCookieValue = (name: string) => {
   if (typeof document === 'undefined') return null;
 
   const cookie = document.cookie
-    .split('; ')
+    .split(';')
+    .map((item) => item.trim())
     .find((item) => item.startsWith(`${name}=`));
 
-  return cookie ? decodeURIComponent(cookie.split('=')[1] ?? '') : null;
+  return cookie ? decodeURIComponent(cookie.slice(name.length + 1)) : null;
 };
 
 export const getBrowserAuthToken = () => getCookieValue(AUTH_TOKEN_COOKIE);
@@ -25,3 +26,4 @@ export const setBrowserAuthToken = (token: string) => {
 export const clearBrowserAuthToken = () => {
   document.cookie = `${AUTH_TOKEN_COOKIE}=; path=/; max-age=0; samesite=lax`;
 };
+

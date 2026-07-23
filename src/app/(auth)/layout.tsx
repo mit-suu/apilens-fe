@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import React from 'react';
 import { getServerAuthToken } from '@/libs/server-auth';
+import { ToastProvider } from '@/components/RealtimeToast';
 
 export const metadata: Metadata = {
   title: 'APILens App',
@@ -22,5 +23,11 @@ export default async function AuthLayout({
 
   if (!token) redirect('/');
 
-  return <div className="min-h-screen w-full">{children}</div>;
+  return (
+    <ToastProvider>
+      <div className="min-h-screen w-full">{children}</div>
+    </ToastProvider>
+  );
 }
+
+
