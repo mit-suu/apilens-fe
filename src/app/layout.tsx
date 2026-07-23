@@ -28,6 +28,7 @@ export default function RootLayout({
           inter.className,
           'bg-dark text-white min-h-screen m-0 min-w-[320px]'
         )}
+        suppressHydrationWarning
       >
         {children}
       </body>
