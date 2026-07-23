@@ -5,7 +5,9 @@ import AppHeader from '@/components/AppHeader';
 import { listMyAnalyses } from '@/libs/api';
 import { type Analysis, type AuthUser } from '@/types/global';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useRealtimeAnalysis, patchAnalysisList } from '@/hooks/useRealtimeAnalysis';
+import { useToast } from '@/components/RealtimeToast';
 
 const PAGE_SIZE = 20;
 
@@ -202,6 +204,49 @@ export default function HistoryView({ user }: { user: AuthUser }) {
   const [selectedAnalysisIds, setSelectedAnalysisIds] = useState<Set<string>>(
     () => new Set()
   );
+
+  const { addToast } = useToast();
+
+  // --- Realtime: analysis events ---
+  const handleAnalysisCreated = useCallback(
+    (payload: { analysis: Partial<Analysis> & { _id: string } }) => {
+      setAnalyses((prev) => {
+        if (prev.some((a) => a._id === payload.analysis._id)) return prev;
+        return [payload.analysis as Analysis, ...prev];
+      });
+      addToast({
+        type: 'info',
+        message: 'New scan added',
+        detail: payload.analysis.repoFullName,
+      });
+    },
+    [addToast]
+  );
+
+  const handleAnalysisUpdated = useCallback(
+    (payload: { analysis: Partial<Analysis> & { _id: string } }) => {
+      setAnalyses((prev) => patchAnalysisList(prev, payload.analysis));
+    },
+    []
+  );
+
+  const handleAnalysisDeleted = useCallback(
+    (payload: { analysisId: string }) => {
+      setAnalyses((prev) => prev.filter((a) => a._id !== payload.analysisId));
+      setSelectedAnalysisIds((prev) => {
+        const next = new Set(prev);
+        next.delete(payload.analysisId);
+        return next;
+      });
+    },
+    []
+  );
+
+  useRealtimeAnalysis({
+    onCreated: handleAnalysisCreated,
+    onUpdated: handleAnalysisUpdated,
+    onDeleted: handleAnalysisDeleted,
+  });
 
   useEffect(() => {
     let mounted = true;
