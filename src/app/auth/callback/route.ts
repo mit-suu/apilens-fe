@@ -20,5 +20,5 @@ export async function GET(request: NextRequest) {
     secure: process.env.NODE_ENV === 'production',
   });
 
-  return NextResponse.redirect(new URL('/app', request.url));
+  return NextResponse.redirect(new URL('/dashboard', request.url));
 }

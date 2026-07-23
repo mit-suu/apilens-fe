@@ -118,7 +118,7 @@ const signals = [
 export default async function LandingPage() {
   const user = await getServerCurrentUser();
   const githubAuthUrl = getBackendAuthUrl('/auth/github');
-  const primaryHref = user ? '/app' : githubAuthUrl;
+  const primaryHref = user ? '/dashboard' : githubAuthUrl;
   const primaryLabel = user ? 'Open dashboard' : 'Continue with GitHub';
 
   return (

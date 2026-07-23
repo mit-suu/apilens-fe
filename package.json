@@ -1,5 +1,5 @@
 {
-  "name": "nextjs-boilerplate",
+  "name": "apilens-fe",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -20,6 +20,7 @@
     "next": "^16.0.10",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "recharts": "^3.10.0",
     "styled-components": "^6.4.2",
     "tailwind-merge": "^2.3.0"
   },

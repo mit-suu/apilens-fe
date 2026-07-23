@@ -56,6 +56,12 @@ export default function UserBadge({ user }: { user: AuthUser }) {
   const displayName = user.name || user.email || 'GitHub user';
   const fallbackInitial = displayName.slice(0, 1).toUpperCase();
 
+  const isMitSuu =
+    (user.providers?.username || '').toLowerCase() === 'mit-suu' ||
+    (user.name || '').toLowerCase().includes('mit-suu') ||
+    (user.email || '').toLowerCase().includes('mit-suu') ||
+    user.role === 'admin';
+
   return (
     <div className="user-badge-menu">
       <div className="user-badge-popup">
@@ -99,9 +105,15 @@ export default function UserBadge({ user }: { user: AuthUser }) {
           </div>
           <ul>
             <li>
+              <Link href="/dashboard">
+                <MenuIcon type="dashboard" />
+                <span>Analytics Dashboard</span>
+              </Link>
+            </li>
+            <li>
               <Link href="/app">
                 <MenuIcon type="dashboard" />
-                <span>Dashboard</span>
+                <span>Scan Repository</span>
               </Link>
             </li>
             <li>
@@ -110,6 +122,14 @@ export default function UserBadge({ user }: { user: AuthUser }) {
                 <span>Scan history</span>
               </Link>
             </li>
+            {isMitSuu && (
+              <li>
+                <Link href="/admin" className="text-amber-400 font-semibold">
+                  <MenuIcon type="dashboard" />
+                  <span>Admin Console</span>
+                </Link>
+              </li>
+            )}
             <hr />
             <li>
               <a
