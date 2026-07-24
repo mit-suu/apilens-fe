@@ -10,6 +10,10 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import styled from 'styled-components';
 import { useRealtimeAnalysis } from '@/hooks/useRealtimeAnalysis';
 import { useToast } from '@/components/RealtimeToast';
+import { generateSwaggerSpec, type OpenApiSpec } from '@/libs/swagger.service';
+import { SwaggerPlayground } from '@/components/swagger/SwaggerPlayground';
+import { PremiumUpgradeModal } from '@/components/swagger/PremiumUpgradeModal';
+import { Crown, Loader2, X } from 'lucide-react';
 
 const severityStyle: Record<
   Smell['severity'],
@@ -644,6 +648,31 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
     setFixingState('idle');
   }, [selectedIndex]);
 
+  // Swagger Playground state
+  const [isGeneratingSwagger, setIsGeneratingSwagger] = useState(false);
+  const [swaggerSpec, setSwaggerSpec] = useState<OpenApiSpec | null>(null);
+  const [isSwaggerModalOpen, setIsSwaggerModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
+  const handleGenerateSwagger = async () => {
+    if (!analysis) return;
+    setIsGeneratingSwagger(true);
+    try {
+      const spec = await generateSwaggerSpec({ analysisId: analysis._id });
+      setSwaggerSpec(spec);
+      setIsSwaggerModalOpen(true);
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { status?: number; data?: { error?: { code?: string } } } };
+      if (errorObj.response?.status === 403 || errorObj.response?.data?.error?.code === 'PREMIUM_REQUIRED') {
+        setIsUpgradeModalOpen(true);
+      } else {
+        addToast({ type: 'error', message: 'Swagger generation failed', detail: 'Could not generate Swagger spec.' });
+      }
+    } finally {
+      setIsGeneratingSwagger(false);
+    }
+  };
+
   const handleGenerateFix = async () => {
     if (!analysis) return;
     setFixingState('generating');
@@ -752,7 +781,20 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                 {analysis.repoFullName} · {analysis.branch} · {analysis.filePath}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleGenerateSwagger}
+                disabled={isGeneratingSwagger}
+                type="button"
+                className="flex items-center gap-2 rounded-full bg-amber-500/20 border border-amber-500/40 px-4 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/30 transition-all shadow-sm shadow-amber-500/10"
+              >
+                {isGeneratingSwagger ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                ) : (
+                  <Crown className="h-4 w-4 text-amber-400 fill-amber-400/20" />
+                )}
+                Swagger &amp; Test 👑
+              </button>
               <button
                 className="secondary-action"
                 disabled={rerunning}
@@ -973,8 +1015,26 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
             </div>
             </section>
         </div>
-      </main>
+        </main>
       </div>
+
+      {/* Premium Upgrade Modal */}
+      <PremiumUpgradeModal isOpen={isUpgradeModalOpen} onClose={() => setIsUpgradeModalOpen(false)} />
+
+      {/* Swagger Playground Modal */}
+      {isSwaggerModalOpen && swaggerSpec && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="relative w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl border border-amber-500/30 bg-slate-950 p-6 shadow-2xl">
+            <button
+              onClick={() => setIsSwaggerModalOpen(false)}
+              className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <SwaggerPlayground spec={swaggerSpec} />
+          </div>
+        </div>
+      )}
     </MotionScope>
   );
 }

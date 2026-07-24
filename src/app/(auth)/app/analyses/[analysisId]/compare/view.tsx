@@ -24,9 +24,15 @@ import {
   Code2,
   FileCode,
   GitBranch,
+  Crown,
+  Loader2,
+  X,
 } from 'lucide-react';
 import { type Smell, type AuthUser } from '@/types/global';
 import { createPullRequest } from '@/libs/api';
+import { generateSwaggerSpec, type OpenApiSpec } from '@/libs/swagger.service';
+import { SwaggerPlayground } from '@/components/swagger/SwaggerPlayground';
+import { PremiumUpgradeModal } from '@/components/swagger/PremiumUpgradeModal';
 import AppHeader from '@/components/AppHeader';
 import MotionScope from '@/components/MotionScope';
 import { useToast } from '@/components/RealtimeToast';
@@ -176,6 +182,12 @@ export default function CompareView({ user }: { user: AuthUser }) {
   const [prUrl, setPrUrl] = useState('');
   const [prError, setPrError] = useState('');
 
+  // Swagger Playground state
+  const [isGeneratingSwagger, setIsGeneratingSwagger] = useState(false);
+  const [swaggerSpec, setSwaggerSpec] = useState<OpenApiSpec | null>(null);
+  const [isSwaggerModalOpen, setIsSwaggerModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
   // Guard flag — prevents React StrictMode double-execution from
   // reading sessionStorage twice (read → remove → second read returns null → redirect)
   const hasLoadedRef = useRef(false);
@@ -198,7 +210,7 @@ export default function CompareView({ user }: { user: AuthUser }) {
       const parsed: CompareSessionData = JSON.parse(raw);
       hasLoadedRef.current = true;
       setData(parsed);
-      sessionStorage.removeItem(key);
+      // Keep session data so user can refresh or reopen Swagger modal freely
     } catch {
       router.replace(`/app/analyses/${analysisId}`);
     }
@@ -214,10 +226,39 @@ export default function CompareView({ user }: { user: AuthUser }) {
       setPrUrl(result.pullRequestUrl);
       setPrState('done');
       addToast({ type: 'success', message: 'Pull Request created!', detail: 'Branch pushed to GitHub.' });
+      if (data.analysisId) {
+        sessionStorage.removeItem(`aifix_compare_${data.analysisId}`);
+      }
     } catch (e) {
       setPrError(e instanceof Error ? e.message : 'Failed to create Pull Request.');
       setPrState('error');
       addToast({ type: 'error', message: 'PR creation failed', detail: e instanceof Error ? e.message : '' });
+    }
+  }, [data, addToast]);
+
+  const handleDiscard = useCallback(() => {
+    if (params.analysisId) {
+      sessionStorage.removeItem(`aifix_compare_${params.analysisId}`);
+    }
+    router.push(`/app/analyses/${params.analysisId}`);
+  }, [params.analysisId, router]);
+
+  const handleGenerateSwagger = useCallback(async () => {
+    if (!data) return;
+    setIsGeneratingSwagger(true);
+    try {
+      const spec = await generateSwaggerSpec({ code: data.fixedCode });
+      setSwaggerSpec(spec);
+      setIsSwaggerModalOpen(true);
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { status?: number; data?: { error?: { code?: string } } } };
+      if (errorObj.response?.status === 403 || errorObj.response?.data?.error?.code === 'PREMIUM_REQUIRED') {
+        setIsUpgradeModalOpen(true);
+      } else {
+        addToast({ type: 'error', message: 'Swagger generation failed', detail: 'Could not generate Swagger spec.' });
+      }
+    } finally {
+      setIsGeneratingSwagger(false);
     }
   }, [data, addToast]);
 
@@ -573,7 +614,21 @@ export default function CompareView({ user }: { user: AuthUser }) {
                 </button>
 
                 <button
-                  onClick={() => router.push(`/app/analyses/${params.analysisId}`)}
+                  onClick={handleGenerateSwagger}
+                  disabled={isGeneratingSwagger || prState === 'creating'}
+                  type="button"
+                  className="flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/40 px-5 py-3.5 text-sm font-bold text-amber-300 transition-all shadow-lg shadow-amber-500/10 disabled:opacity-50"
+                >
+                  {isGeneratingSwagger ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                  ) : (
+                    <Crown className="h-4 w-4 text-amber-400 fill-amber-400/20" />
+                  )}
+                  Preview Swagger & Test 👑
+                </button>
+
+                <button
+                  onClick={handleDiscard}
                   disabled={prState === 'creating'}
                   type="button"
                   className="flex items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/80 px-5 py-3.5 text-sm font-semibold text-slate-400 backdrop-blur-sm transition hover:border-gray-700 hover:bg-gray-800 hover:text-white disabled:opacity-40"
@@ -601,6 +656,24 @@ export default function CompareView({ user }: { user: AuthUser }) {
                 <span className="font-mono text-slate-500">{data.repoFullName}</span> and open a
                 Pull Request with the AI-generated changes.
               </p>
+            </div>
+          )}
+
+          {/* Premium Upgrade Modal */}
+          <PremiumUpgradeModal isOpen={isUpgradeModalOpen} onClose={() => setIsUpgradeModalOpen(false)} />
+
+          {/* Swagger Playground Modal */}
+          {isSwaggerModalOpen && swaggerSpec && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+              <div className="relative w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl border border-amber-500/30 bg-slate-950 p-6 shadow-2xl">
+                <button
+                  onClick={() => setIsSwaggerModalOpen(false)}
+                  className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <SwaggerPlayground spec={swaggerSpec} code={data.fixedCode} />
+              </div>
             </div>
           )}
         </main>

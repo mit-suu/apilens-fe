@@ -1,5 +1,11 @@
+'use client';
+
+import { useState } from 'react';
 import { type Smell } from '@/types/global';
-import { CheckCircle2, ShieldAlert, Sparkles, GitPullRequest, XCircle } from 'lucide-react';
+import { Sparkles, GitPullRequest, XCircle, Crown, Loader2, X } from 'lucide-react';
+import { generateSwaggerSpec, type OpenApiSpec } from '@/libs/swagger.service';
+import { SwaggerPlayground } from './swagger/SwaggerPlayground';
+import { PremiumUpgradeModal } from './swagger/PremiumUpgradeModal';
 
 
 interface AiFixComparisonCardProps {
@@ -55,19 +61,11 @@ function computeSimpleDiff(original: string, modified: string): DiffLine[] {
   );
 
   for (let i = 1; i <= left.length; i++) {
-    const leftLine = left[i - 1];
-    const dpRow = dp[i];
-    const prevDpRow = dp[i - 1];
-    if (leftLine === undefined || !dpRow || !prevDpRow) continue;
-
     for (let j = 1; j <= right.length; j++) {
-      const rightLine = right[j - 1];
-      if (rightLine === undefined) continue;
-
-      if (leftLine === rightLine) {
-        dpRow[j] = (prevDpRow[j - 1] || 0) + 1;
+      if (left[i - 1] === right[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
       } else {
-        dpRow[j] = Math.max(prevDpRow[j] || 0, dpRow[j - 1] || 0);
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
       }
     }
   }
@@ -80,7 +78,7 @@ function computeSimpleDiff(original: string, modified: string): DiffLine[] {
     const leftLine = left[i - 1];
     const rightLine = right[j - 1];
 
-    if (i > 0 && j > 0 && leftLine !== undefined && rightLine !== undefined && leftLine === rightLine) {
+    if (i > 0 && j > 0 && leftLine === rightLine) {
       diff.unshift({
         type: 'unchanged',
         content: leftLine,
@@ -118,6 +116,29 @@ export default function AiFixComparisonCard({
   onCancel,
   isCreatingPR,
 }: AiFixComparisonCardProps) {
+  const [isGeneratingSwagger, setIsGeneratingSwagger] = useState(false);
+  const [swaggerSpec, setSwaggerSpec] = useState<OpenApiSpec | null>(null);
+  const [isSwaggerModalOpen, setIsSwaggerModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
+  const handleGenerateSwagger = async () => {
+    setIsGeneratingSwagger(true);
+    try {
+      const spec = await generateSwaggerSpec({ code: fixedCode });
+      setSwaggerSpec(spec);
+      setIsSwaggerModalOpen(true);
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { status?: number; data?: { error?: { code?: string } } } };
+      if (errorObj.response?.status === 403 || errorObj.response?.data?.error?.code === 'PREMIUM_REQUIRED') {
+        setIsUpgradeModalOpen(true);
+      } else {
+        setIsUpgradeModalOpen(true);
+      }
+    } finally {
+      setIsGeneratingSwagger(false);
+    }
+  };
+
   // Calculate projected score post-fix (removes smell weight or boosts to 95-100)
   const weight = smell.severity === 'Critical' ? 35 : smell.severity === 'Medium' ? 20 : 10;
   const projectedScore = Math.min(100, Math.max(originalScore + weight, 92));
@@ -134,70 +155,22 @@ export default function AiFixComparisonCard({
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
               <Sparkles className="h-4 w-4" />
             </span>
-            <h3 className="text-lg font-bold text-white">AI Remediation Impact Comparison</h3>
+            <h3 className="text-lg font-bold text-white">Side-by-Side Remediation Comparison</h3>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Comparing original REST architecture vs AI-remediated code snippet.
-          </p>
+          <p className="text-xs text-slate-400 mt-1">Review AI code changes before opening a Pull Request.</p>
         </div>
 
-        {/* Score Boost Pill */}
-        <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-xl">
-          <span className="text-xs text-slate-400">Score Impact:</span>
-          <span className="text-sm font-black text-emerald-400 flex items-center gap-1">
-            +{scoreDelta} Pts Boost 🚀
-          </span>
-        </div>
-      </div>
-
-      {/* Side-by-Side Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Left Card: Before (Original Baseline) */}
-        <div className="rounded-xl border border-rose-500/30 bg-[#140f1a]/80 p-5 space-y-4 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
-              <ShieldAlert className="h-4 w-4 text-rose-400" /> Original Baseline
-            </span>
-            <span className="rounded-full bg-rose-500/20 border border-rose-500/30 px-2.5 py-0.5 text-[11px] font-bold text-rose-300">
-              {smell.severity} Smell Active
-            </span>
-          </div>
-
+        <div className="flex items-center gap-6">
           <div className="flex items-center gap-4 bg-slate-900/60 p-3 rounded-xl border border-gray-800">
-            <MiniScoreRing score={originalScore} color={originalScore < 50 ? '#f43f5e' : '#f59e0b'} />
+            <MiniScoreRing score={originalScore} color="#f43f5e" />
             <div>
-              <p className="text-xs text-slate-400">Original API Score</p>
-              <p className="text-base font-extrabold text-white">{originalScore} / 100</p>
-              <p className="text-[11px] text-rose-400/90 mt-0.5 font-medium">Issue: {smell.smellName}</p>
+              <p className="text-xs text-slate-400">Current API Score</p>
+              <p className="text-base font-extrabold text-rose-400">{originalScore} / 100</p>
+              <p className="text-[11px] text-rose-300 mt-0.5 font-medium">{smell.severity} Smell Detected</p>
             </div>
           </div>
 
-          <div className="space-y-1.5 text-xs text-slate-400">
-            <div className="flex justify-between">
-              <span>Rule ID:</span>
-              <span className="font-mono text-slate-200">{smell.ruleId || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Category:</span>
-              <span className="text-slate-200">{smell.category || 'REST Design'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Affected Line(s):</span>
-              <span className="font-mono text-rose-400">L{smell.lineNumbers?.join(', ') || 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Card: After (AI Projected Remediation) */}
-        <div className="rounded-xl border border-emerald-500/40 bg-[#0f1f1a]/80 p-5 space-y-4 relative overflow-hidden shadow-lg shadow-emerald-950/30">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" /> Projected Remediation
-            </span>
-            <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300">
-              Resolved ✓
-            </span>
-          </div>
+          <div className="text-xl font-extrabold text-slate-500">➔</div>
 
           <div className="flex items-center gap-4 bg-slate-900/60 p-3 rounded-xl border border-gray-800">
             <MiniScoreRing score={projectedScore} color="#10b981" />
@@ -214,11 +187,11 @@ export default function AiFixComparisonCard({
               <span className="font-semibold text-emerald-300">Compliant</span>
             </div>
             <div className="flex justify-between">
-              <span>Security & Best Practices:</span>
+              <span>Security &amp; Best Practices:</span>
               <span className="text-emerald-300">Passed</span>
             </div>
             <div className="flex justify-between">
-              <span>Status Code & Conventions:</span>
+              <span>Status Code &amp; Conventions:</span>
               <span className="font-mono text-emerald-300">Normalized</span>
             </div>
           </div>
@@ -279,6 +252,20 @@ export default function AiFixComparisonCard({
       {/* Action Buttons */}
       <div className="flex flex-wrap items-center gap-3 pt-2">
         <button
+          onClick={handleGenerateSwagger}
+          disabled={isGeneratingSwagger || isCreatingPR}
+          type="button"
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/40 px-5 py-3 text-xs font-bold text-amber-300 transition-all shadow-lg shadow-amber-500/10"
+        >
+          {isGeneratingSwagger ? (
+            <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+          ) : (
+            <Crown className="h-4 w-4 text-amber-400 fill-amber-400/20" />
+          )}
+          <span>Preview Swagger &amp; Test 👑</span>
+        </button>
+
+        <button
           onClick={onCreatePR}
           disabled={isCreatingPR}
           type="button"
@@ -292,7 +279,7 @@ export default function AiFixComparisonCard({
           ) : (
             <>
               <GitPullRequest className="h-4 w-4" />
-              <span>Approve & Create GitHub Pull Request (+{scoreDelta} pts)</span>
+              <span>Approve &amp; Create GitHub Pull Request (+{scoreDelta} pts)</span>
             </>
           )}
         </button>
@@ -307,6 +294,25 @@ export default function AiFixComparisonCard({
           <span>Cancel</span>
         </button>
       </div>
+
+      {/* Upgrade Modal for Free Users */}
+      <PremiumUpgradeModal isOpen={isUpgradeModalOpen} onClose={() => setIsUpgradeModalOpen(false)} />
+
+      {/* Interactive Swagger Playground Modal */}
+      {isSwaggerModalOpen && swaggerSpec && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl border border-amber-500/30 bg-slate-950 p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setIsSwaggerModalOpen(false)}
+              className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <SwaggerPlayground spec={swaggerSpec} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
