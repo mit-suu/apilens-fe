@@ -2,7 +2,7 @@
 
 import MotionScope from '@/components/MotionScope';
 import AppHeader from '@/components/AppHeader';
-import { exportAnalysisReport, getAnalysis, rerunAnalysis, generateAiFix, createPullRequest } from '@/libs/api';
+import { exportAnalysisReport, getAnalysis, rerunAnalysis, generateAiFix } from '@/libs/api';
 import { type Analysis, type AuthUser, type Smell } from '@/types/global';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -605,81 +605,6 @@ function Radar({ analysis }: { analysis: Analysis }) {
   );
 }
 
-interface DiffLine {
-  type: 'added' | 'removed' | 'unchanged';
-  content: string;
-  leftLineNumber?: number;
-  rightLineNumber?: number;
-}
-
-function computeSimpleDiff(original: string, modified: string): DiffLine[] {
-  const left = original.split('\n');
-  const right = modified.split('\n');
-  
-  const dp: number[][] = Array.from({ length: left.length + 1 }, () =>
-    Array(right.length + 1).fill(0)
-  );
-
-  for (let i = 1; i <= left.length; i++) {
-    const leftLine = left[i - 1];
-    const dpRow = dp[i];
-    const prevDpRow = dp[i - 1];
-    if (leftLine === undefined || !dpRow || !prevDpRow) continue;
-
-    for (let j = 1; j <= right.length; j++) {
-      const rightLine = right[j - 1];
-      if (rightLine === undefined) continue;
-
-      if (leftLine === rightLine) {
-        dpRow[j] = (prevDpRow[j - 1] || 0) + 1;
-      } else {
-        dpRow[j] = Math.max(prevDpRow[j] || 0, dpRow[j - 1] || 0);
-      }
-    }
-  }
-
-  const diff: DiffLine[] = [];
-  let i = left.length;
-  let j = right.length;
-
-  while (i > 0 || j > 0) {
-    const leftLine = left[i - 1];
-    const rightLine = right[j - 1];
-
-    const currentDpRow = dp[i];
-    const prevDpRow = dp[i - 1];
-
-    const valLeft = leftLine ?? '';
-    const valRight = rightLine ?? '';
-
-    if (i > 0 && j > 0 && leftLine !== undefined && rightLine !== undefined && leftLine === rightLine) {
-      diff.unshift({
-        type: 'unchanged',
-        content: valLeft,
-        leftLineNumber: i,
-        rightLineNumber: j,
-      });
-      i--;
-      j--;
-    } else if (j > 0 && (i === 0 || (currentDpRow?.[j - 1] ?? 0) >= (prevDpRow?.[j] ?? 0))) {
-      diff.unshift({
-        type: 'added',
-        content: valRight,
-        rightLineNumber: j,
-      });
-      j--;
-    } else {
-      diff.unshift({
-        type: 'removed',
-        content: valLeft,
-        leftLineNumber: i,
-      });
-      i--;
-    }
-  }
-
-  return diff;
-}
 
 
 export default function ResultDashboard({ user }: { user: AuthUser }) {
@@ -689,10 +614,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [error, setError] = useState('');
   const [rerunning, setRerunning] = useState(false);
-  const [fixingState, setFixingState] = useState<'idle' | 'generating' | 'diff' | 'creating-pr' | 'pr-created' | 'error'>('idle');
-  const [originalCode, setOriginalCode] = useState('');
-  const [fixedCode, setFixedCode] = useState('');
-  const [prUrl, setPrUrl] = useState('');
+  const [fixingState, setFixingState] = useState<'idle' | 'generating' | 'error'>('idle');
   const [fixError, setFixError] = useState('');
 
   const { addToast } = useToast();
@@ -728,28 +650,29 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
     setFixError('');
     try {
       const result = await generateAiFix(analysis._id, selectedIndex);
-      setOriginalCode(result.originalContent);
-      setFixedCode(result.fixedContent);
-      setFixingState('diff');
+      // Store comparison data in sessionStorage then navigate to compare page
+      const key = `aifix_compare_${analysis._id}`;
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          originalCode: result.originalContent,
+          fixedCode: result.fixedContent,
+          smell: analysis.smells[selectedIndex],
+          originalScore: analysis.score,
+          smellIndex: selectedIndex,
+          analysisId: analysis._id,
+          repoFullName: analysis.repoFullName,
+        })
+      );
+      router.push(`/app/analyses/${analysis._id}/compare`);
     } catch (caught) {
       setFixError(caught instanceof Error ? caught.message : 'Unable to generate code fix.');
       setFixingState('error');
     }
   };
 
-  const handleCreatePullRequest = async () => {
-    if (!analysis) return;
-    setFixingState('creating-pr');
-    setFixError('');
-    try {
-      const result = await createPullRequest(analysis._id, selectedIndex, fixedCode);
-      setPrUrl(result.pullRequestUrl);
-      setFixingState('pr-created');
-    } catch (caught) {
-      setFixError(caught instanceof Error ? caught.message : 'Failed to create Pull Request.');
-      setFixingState('error');
-    }
-  };
+
+
 
   useEffect(() => {
     if (!params.analysisId) return;
@@ -1016,87 +939,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                         <div className="flex flex-col items-center justify-center gap-3 py-4">
                           <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
                           <p className="text-sm font-medium text-white">AI is drafting a fix...</p>
-                          <p className="text-xs text-[var(--muted)]">This will modify your source file and show you a preview.</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {fixingState === 'diff' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent)]">
-                            Diff Preview
-                          </h3>
-                          <span className="text-xs text-[var(--subtle)]">Green: Additions | Red: Deletions</span>
-                        </div>
-                        <div className="max-h-[300px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border)] bg-[#030712] p-3 font-mono text-[11px] leading-5 text-slate-300">
-                          {computeSimpleDiff(originalCode, fixedCode).map((line, idx) => {
-                            const bg = line.type === 'added' ? 'bg-[rgba(74,222,128,0.15)] text-green-400 border-l-2 border-green-500 px-1' :
-                                       line.type === 'removed' ? 'bg-[rgba(251,113,133,0.15)] text-red-400 border-l-2 border-red-500 px-1 line-through' :
-                                       'text-slate-400 px-1 opacity-70';
-                            return (
-                              <div key={idx} className={`flex gap-4 ${bg}`}>
-                                <span className="w-8 select-none text-right text-[var(--subtle)] opacity-40">
-                                  {line.type === 'added' ? line.rightLineNumber : line.leftLineNumber || ''}
-                                </span>
-                                <span className="whitespace-pre">{line.content}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            className="primary-action flex-grow flex items-center justify-center gap-2"
-                            onClick={handleCreatePullRequest}
-                            type="button"
-                          >
-                            Approve & Create Pull Request
-                          </button>
-                          <button
-                            className="secondary-action"
-                            onClick={() => setFixingState('idle')}
-                            type="button"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {fixingState === 'creating-pr' && (
-                      <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[#0b1017] p-4 text-center">
-                        <div className="flex flex-col items-center justify-center gap-3 py-4">
-                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                          <p className="text-sm font-medium text-white">Creating branch & committing changes...</p>
-                          <p className="text-xs text-[var(--muted)]">Opening Pull Request on GitHub...</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {fixingState === 'pr-created' && (
-                      <div className="rounded-[var(--radius-md)] border border-[#23ae23]/30 bg-[#23ae23]/10 p-5 text-center">
-                        <div className="flex flex-col items-center justify-center gap-3">
-                          <span className="text-3xl">🎉</span>
-                          <h3 className="text-lg font-semibold text-white">Pull Request Created!</h3>
-                          <p className="text-xs text-[var(--muted)] max-w-sm">
-                            APILens has successfully created a new branch and opened a Pull Request for your repository.
-                          </p>
-                          <a
-                            href={prUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="primary-action mt-2 inline-flex items-center justify-center gap-2"
-                          >
-                            Open Pull Request on GitHub ↗
-                          </a>
-                          <button
-                            className="text-xs text-[var(--muted)] underline mt-3 hover:text-white"
-                            onClick={() => setFixingState('idle')}
-                            type="button"
-                          >
-                            Fix another issue
-                          </button>
+                          <p className="text-xs text-[var(--muted)]">Preparing comparison view…</p>
                         </div>
                       </div>
                     )}
@@ -1125,6 +968,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                     )}
                   </div>
                 )}
+
               </div>
             </div>
             </section>
