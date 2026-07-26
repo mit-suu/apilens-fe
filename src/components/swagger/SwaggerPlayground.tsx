@@ -59,7 +59,7 @@ interface SwaggerPlaygroundProps {
   code?: string;
 }
 
-export default function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
+export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
   const [copied, setCopied] = useState(false);
   const initialUrl = (spec.servers?.[0]?.url && !spec.servers[0].url.includes(':3000'))
     ? spec.servers[0].url
@@ -569,5 +569,4 @@ export default function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps
   );
 }
 
-export { SwaggerPlayground };
 export default SwaggerPlayground;

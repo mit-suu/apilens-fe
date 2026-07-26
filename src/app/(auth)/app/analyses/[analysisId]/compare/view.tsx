@@ -25,9 +25,8 @@ import {
 } from 'lucide-react';
 import { type Smell, type AuthUser } from '@/types/global';
 import { createPullRequest } from '@/libs/api';
-import { generateSwaggerSpec, type OpenApiSpec } from '@/libs/swagger.service';
-import { SwaggerPlayground } from '@/components/swagger/SwaggerPlayground';
-import { PremiumUpgradeModal } from '@/components/swagger/PremiumUpgradeModal';
+import SwaggerPlayground from '@/components/swagger/SwaggerPlayground';
+import PremiumUpgradeModal from '@/components/swagger/PremiumUpgradeModal';
 import AppHeader from '@/components/AppHeader';
 import MotionScope from '@/components/MotionScope';
 import { useToast } from '@/components/RealtimeToast';

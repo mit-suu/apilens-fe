@@ -79,5 +79,4 @@ export function PremiumUpgradeModal({ isOpen, onClose }: PremiumUpgradeModalProp
   );
 }
 
-export { PremiumUpgradeModal };
 export default PremiumUpgradeModal;
