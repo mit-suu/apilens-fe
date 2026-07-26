@@ -63,9 +63,9 @@ function computeSimpleDiff(original: string, modified: string): DiffLine[] {
   for (let i = 1; i <= left.length; i++) {
     for (let j = 1; j <= right.length; j++) {
       if (left[i - 1] === right[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        dp[i]![j] = dp[i - 1]![j - 1]! + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
       }
     }
   }
@@ -75,8 +75,8 @@ function computeSimpleDiff(original: string, modified: string): DiffLine[] {
   let j = right.length;
 
   while (i > 0 || j > 0) {
-    const leftLine = left[i - 1];
-    const rightLine = right[j - 1];
+    const leftLine = left[i - 1] ?? '';
+    const rightLine = right[j - 1] ?? '';
 
     if (i > 0 && j > 0 && leftLine === rightLine) {
       diff.unshift({

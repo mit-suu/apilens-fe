@@ -13,11 +13,16 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
+  ArrowLeft,
   GitPullRequest,
   RefreshCcw,
+  CheckCircle2,
+  ShieldAlert,
   Sparkles,
   XCircle,
+  TrendingUp,
   Code2,
+  FileCode,
   GitBranch,
   Crown,
   Loader2,
@@ -25,6 +30,7 @@ import {
 } from 'lucide-react';
 import { type Smell, type AuthUser } from '@/types/global';
 import { createPullRequest } from '@/libs/api';
+import { generateSwaggerSpec, type OpenApiSpec } from '@/libs/swagger.service';
 import SwaggerPlayground from '@/components/swagger/SwaggerPlayground';
 import PremiumUpgradeModal from '@/components/swagger/PremiumUpgradeModal';
 import AppHeader from '@/components/AppHeader';

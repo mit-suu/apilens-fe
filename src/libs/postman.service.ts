@@ -56,8 +56,13 @@ export const convertOpenApiToPostman = (openApiSpec: OpenApiSpec) => {
             path: pathSegments,
           },
           description: op.description || op.summary || '',
+          body: undefined as undefined | {
+            mode: string;
+            raw: string;
+            options: { raw: { language: string } };
+          },
         },
-        response: [],
+        response: [] as Array<Record<string, unknown>>,
       };
 
       if (op.requestBody?.content?.['application/json']?.schema?.example) {
