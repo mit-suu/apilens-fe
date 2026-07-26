@@ -577,3 +577,4 @@ export default function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps
 }
 
 export { SwaggerPlayground };
+export default SwaggerPlayground;

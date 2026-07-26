@@ -8,7 +8,7 @@ interface PremiumUpgradeModalProps {
   onClose: () => void;
 }
 
-export default function PremiumUpgradeModal({ isOpen, onClose }: PremiumUpgradeModalProps) {
+export function PremiumUpgradeModal({ isOpen, onClose }: PremiumUpgradeModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -81,3 +81,4 @@ export default function PremiumUpgradeModal({ isOpen, onClose }: PremiumUpgradeM
 }
 
 export { PremiumUpgradeModal };
+export default PremiumUpgradeModal;
