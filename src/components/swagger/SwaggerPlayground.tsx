@@ -17,6 +17,7 @@ import {
   Cpu,
 } from 'lucide-react';
 import { type OpenApiSpec, executeSandboxedEndpoint } from '@/libs/swagger.service';
+import { convertOpenApiToPostman } from '@/libs/postman.service';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head']);
 
@@ -267,6 +268,21 @@ export default function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps
     }
   };
 
+  const handleDownloadPostman = () => {
+    try {
+      const collection = convertOpenApiToPostman(spec);
+      const blob = new Blob([JSON.stringify(collection, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${spec.info?.title || 'apilens'}.postman_collection.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to export Postman collection', e);
+    }
+  };
+
   const paths = Object.entries(spec.paths || {});
 
   return (
@@ -298,7 +314,15 @@ export default function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition-all"
           >
             <Download className="w-4 h-4" />
-            Download Spec
+            Swagger Spec
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPostman}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-400 hover:to-amber-500 text-xs font-bold text-slate-950 shadow-md shadow-orange-500/20 transition-all hover:scale-105 active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            Postman v2.1 🚀
           </button>
         </div>
       </div>

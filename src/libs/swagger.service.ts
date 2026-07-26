@@ -74,3 +74,11 @@ export const executeSandboxedEndpoint = async (payload: {
   );
   return data.result;
 };
+
+export const exportPostmanCollection = async (spec: OpenApiSpec) => {
+  const { data } = await http.post<{ success: boolean; collection: Record<string, unknown> }>(
+    '/swagger/export/postman',
+    { spec }
+  );
+  return data.collection;
+};
