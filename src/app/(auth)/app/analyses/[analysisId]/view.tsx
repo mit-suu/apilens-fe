@@ -11,6 +11,7 @@ import styled from 'styled-components';
 import { useRealtimeAnalysis } from '@/hooks/useRealtimeAnalysis';
 import { useToast } from '@/components/RealtimeToast';
 
+
 const severityStyle: Record<
   Smell['severity'],
   { border: string; badge: string; text: string }
@@ -644,6 +645,8 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
     setFixingState('idle');
   }, [selectedIndex]);
 
+
+
   const handleGenerateFix = async () => {
     if (!analysis) return;
     setFixingState('generating');
@@ -752,7 +755,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                 {analysis.repoFullName} · {analysis.branch} · {analysis.filePath}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 className="secondary-action"
                 disabled={rerunning}
@@ -973,7 +976,7 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
             </div>
             </section>
         </div>
-      </main>
+        </main>
       </div>
     </MotionScope>
   );
