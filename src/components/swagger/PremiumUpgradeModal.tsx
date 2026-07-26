@@ -12,9 +12,8 @@ export function PremiumUpgradeModal({ isOpen, onClose }: PremiumUpgradeModalProp
   if (!isOpen) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div className="relative w-full max-w-md rounded-2xl border border-amber-500/30 bg-slate-900/95 p-6 shadow-2xl shadow-amber-500/10 text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-md rounded-2xl border border-amber-500/30 bg-slate-900/95 p-6 shadow-2xl shadow-amber-500/10 text-white">
           <button
             type="button"
             onClick={onClose}
@@ -75,8 +74,8 @@ export function PremiumUpgradeModal({ isOpen, onClose }: PremiumUpgradeModalProp
               Nâng cấp ngay
             </Link>
           </div>
-        </div>
-      </div></>
+      </div>
+    </div>
   );
 }
 
