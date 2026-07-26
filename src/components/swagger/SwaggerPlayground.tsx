@@ -2,19 +2,12 @@
 
 import React, { useState } from 'react';
 import {
-  Play,
   Copy,
   Download,
   Check,
-  Server,
-  Globe,
-  Code2,
   ChevronDown,
   ChevronRight,
   ShieldCheck,
-  Send,
-  Loader2,
-  Cpu,
 } from 'lucide-react';
 import { type OpenApiSpec, executeSandboxedEndpoint } from '@/libs/swagger.service';
 import { convertOpenApiToPostman } from '@/libs/postman.service';
