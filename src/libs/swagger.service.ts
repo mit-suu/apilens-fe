@@ -34,17 +34,10 @@ export type OpenApiSpec = {
           };
         };
         responses?: Record<string, { description?: string; content?: Record<string, unknown> }>;
+        security?: Array<Record<string, string[]>>;
       }
     >
   >;
-};
-
-export type ExecutionResult = {
-  status: number;
-  headers: Record<string, string>;
-  body: unknown;
-  executionTimeMs: number;
-  engine: string;
 };
 
 export const generateSwaggerSpec = async (payload: {
@@ -52,27 +45,15 @@ export const generateSwaggerSpec = async (payload: {
   code?: string;
   endpoints?: Array<{ method?: string; path?: string; description?: string }>;
   serverUrl?: string;
+  repoFullName?: string;
+  branch?: string;
+  filePath?: string;
 }) => {
   const { data } = await http.post<{ success: boolean; spec: OpenApiSpec }>(
     '/swagger/generate',
     payload
   );
   return data.spec;
-};
-
-export const executeSandboxedEndpoint = async (payload: {
-  code?: string;
-  method: string;
-  path: string;
-  body?: unknown;
-  headers?: Record<string, string>;
-  query?: Record<string, string>;
-}) => {
-  const { data } = await http.post<{ success: boolean; result: ExecutionResult }>(
-    '/swagger/execute',
-    payload
-  );
-  return data.result;
 };
 
 export const exportPostmanCollection = async (spec: OpenApiSpec) => {

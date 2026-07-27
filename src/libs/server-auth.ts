@@ -14,16 +14,20 @@ export const getServerCurrentUser = async () => {
 
   if (!token) return null;
 
-  const response = await fetch(getBackendAuthUrl('/auth/me'), {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    cache: 'no-store',
-  });
+  try {
+    const response = await fetch(getBackendAuthUrl('/auth/me'), {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: 'no-store',
+    });
 
-  if (!response.ok) return null;
+    if (!response.ok) return null;
 
-  const payload = (await response.json()) as { user: AuthUser };
+    const payload = (await response.json()) as { user: AuthUser };
 
-  return payload.user;
+    return payload.user;
+  } catch {
+    return null;
+  }
 };
