@@ -10,6 +10,10 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import styled from 'styled-components';
 import { useRealtimeAnalysis } from '@/hooks/useRealtimeAnalysis';
 import { useToast } from '@/components/RealtimeToast';
+import { Crown, Loader2 } from 'lucide-react';
+import { generateSwaggerSpec, type OpenApiSpec } from '@/libs/swagger.service';
+import { SwaggerPlayground } from '@/components/swagger/SwaggerPlayground';
+import { PremiumUpgradeModal } from '@/components/swagger/PremiumUpgradeModal';
 
 
 const severityStyle: Record<
@@ -617,6 +621,10 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
   const [rerunning, setRerunning] = useState(false);
   const [fixingState, setFixingState] = useState<'idle' | 'generating' | 'error'>('idle');
   const [fixError, setFixError] = useState('');
+  const [isGeneratingSwagger, setIsGeneratingSwagger] = useState(false);
+  const [swaggerSpec, setSwaggerSpec] = useState<OpenApiSpec | null>(null);
+  const [isSwaggerModalOpen, setIsSwaggerModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
 
   const { addToast } = useToast();
 
@@ -665,12 +673,33 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
           smellIndex: selectedIndex,
           analysisId: analysis._id,
           repoFullName: analysis.repoFullName,
+          branch: analysis.branch,
+          filePath: analysis.filePath,
         })
       );
       router.push(`/app/analyses/${analysis._id}/compare`);
     } catch (caught) {
       setFixError(caught instanceof Error ? caught.message : 'Unable to generate code fix.');
       setFixingState('error');
+    }
+  };
+
+  const handleGenerateFullSwagger = async () => {
+    if (!analysis) return;
+    setIsGeneratingSwagger(true);
+    try {
+      const spec = await generateSwaggerSpec({ analysisId: analysis._id });
+      setSwaggerSpec(spec);
+      setIsSwaggerModalOpen(true);
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { status?: number; data?: { error?: { code?: string } } } };
+      if (errorObj.response?.status === 403 || errorObj.response?.data?.error?.code === 'PREMIUM_REQUIRED') {
+        setIsUpgradeModalOpen(true);
+      } else {
+        setIsUpgradeModalOpen(true);
+      }
+    } finally {
+      setIsGeneratingSwagger(false);
     }
   };
 
@@ -765,6 +794,21 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
                 {rerunning ? 'Rerunning...' : 'Rerun analysis'}
               </button>
               <ExportSwitch analysis={analysis} />
+              {analysis.endpoints.length > 0 && (
+                <button
+                  onClick={handleGenerateFullSwagger}
+                  disabled={isGeneratingSwagger}
+                  type="button"
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/40 px-4 py-2 text-xs font-bold text-amber-300 transition-all"
+                >
+                  {isGeneratingSwagger ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                  ) : (
+                    <Crown className="h-4 w-4 text-amber-400 fill-amber-400/20" />
+                  )}
+                  <span>Swagger &amp; Postman for this file 👑</span>
+                </button>
+              )}
               <Link href="/app" className="primary-action">
                 Analyze another repo
               </Link>
@@ -978,6 +1022,23 @@ export default function ResultDashboard({ user }: { user: AuthUser }) {
         </div>
         </main>
       </div>
+
+      <PremiumUpgradeModal isOpen={isUpgradeModalOpen} onClose={() => setIsUpgradeModalOpen(false)} />
+
+      {isSwaggerModalOpen && swaggerSpec && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="relative w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl border border-amber-500/30 bg-slate-950 p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setIsSwaggerModalOpen(false)}
+              className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+            <SwaggerPlayground spec={swaggerSpec} />
+          </div>
+        </div>
+      )}
     </MotionScope>
   );
 }

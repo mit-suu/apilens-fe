@@ -46,6 +46,8 @@ interface CompareSessionData {
   smellIndex: number;
   analysisId: string;
   repoFullName?: string;
+  branch?: string;
+  filePath?: string;
 }
 
 // ── Diff helpers ────────────────────────────────────────────────────
@@ -247,7 +249,12 @@ export default function CompareView({ user }: { user: AuthUser }) {
     if (!data) return;
     setIsGeneratingSwagger(true);
     try {
-      const spec = await generateSwaggerSpec({ code: data.fixedCode });
+      const spec = await generateSwaggerSpec({
+        code: data.fixedCode,
+        repoFullName: data.repoFullName,
+        branch: data.branch,
+        filePath: data.filePath,
+      });
       setSwaggerSpec(spec);
       setIsSwaggerModalOpen(true);
     } catch (err: unknown) {
@@ -672,7 +679,7 @@ export default function CompareView({ user }: { user: AuthUser }) {
                 >
                   <X className="w-5 h-5" />
                 </button>
-                <SwaggerPlayground spec={swaggerSpec} code={data.fixedCode} />
+                <SwaggerPlayground spec={swaggerSpec} />
               </div>
             </div>
           )}

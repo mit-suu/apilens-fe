@@ -14,9 +14,8 @@ import {
   ShieldCheck,
   Send,
   Loader2,
-  Cpu,
 } from 'lucide-react';
-import { type OpenApiSpec, executeSandboxedEndpoint } from '@/libs/swagger.service';
+import { type OpenApiSpec } from '@/libs/swagger.service';
 import { convertOpenApiToPostman } from '@/libs/postman.service';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head']);
@@ -63,19 +62,24 @@ export interface SwaggerOperation {
 
 interface SwaggerPlaygroundProps {
   spec: OpenApiSpec;
-  code?: string;
 }
 
-export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
+/**
+ * Displays a generated OpenAPI spec with a "Try it out" panel that calls a real,
+ * running target server directly from the browser. There is deliberately no
+ * in-memory code-execution mode here: an isolated JS sandbox can't faithfully
+ * reproduce a real Express app (real middleware chains, a real database,
+ * native modules, callback-style async code), so it produced misleading
+ * pass/fail results. Testing against the user's own running server is the
+ * only mode that reports the endpoint's actual behavior.
+ */
+export function SwaggerPlayground({ spec }: SwaggerPlaygroundProps) {
   const [copied, setCopied] = useState(false);
   const initialUrl = (spec.servers?.[0]?.url && !spec.servers[0].url.includes(':3000'))
     ? spec.servers[0].url
     : 'http://localhost:5000';
   const [targetServer, setTargetServer] = useState(initialUrl);
   const [openEndpoints, setOpenEndpoints] = useState<Record<string, boolean>>({});
-  
-  // Mode: 'sandbox' (runs code in APILens VM sandbox) vs 'live' (calls external server)
-  const [testMode, setTestMode] = useState<'sandbox' | 'live'>('sandbox');
 
   // Interactive testing state per path+method key
   const [testInputs, setTestInputs] = useState<Record<string, { headers: string; body: string; query: string }>>({});
@@ -87,7 +91,6 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
         data?: unknown;
         timeMs?: number;
         error?: string;
-        engine?: string;
         loading?: boolean;
       }
     >
@@ -129,64 +132,6 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
 
     const input = testInputs[key] || { headers: '', body: defaultBody ? JSON.stringify(defaultBody, null, 2) : '', query: '' };
 
-    // Mode 1: Sandboxed Real Execution Engine (APILens Backend VM)
-    if (testMode === 'sandbox') {
-      try {
-        let parsedBody: unknown = undefined;
-        if (input.body) {
-          try {
-            parsedBody = JSON.parse(input.body);
-          } catch {
-            parsedBody = input.body;
-          }
-        } else if (defaultBody) {
-          parsedBody = defaultBody;
-        }
-
-        let parsedHeaders: Record<string, string> = {};
-        if (input.headers) {
-          try {
-            parsedHeaders = JSON.parse(input.headers);
-          } catch {
-            // Ignore header parse error
-          }
-        }
-
-        const res = await executeSandboxedEndpoint({
-          code,
-          method,
-          path,
-          body: parsedBody,
-          headers: parsedHeaders,
-        });
-
-        setTestResults((prev) => ({
-          ...prev,
-          [key]: {
-            status: res.status,
-            data: res.body,
-            timeMs: res.executionTimeMs,
-            engine: res.engine,
-            loading: false,
-          },
-        }));
-      } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : 'Sandboxed execution failed';
-        setTestResults((prev) => ({
-          ...prev,
-          [key]: {
-            status: 500,
-            error: errorMessage,
-            timeMs: Math.round(performance.now() - startTime),
-            engine: 'APILens Ephemeral Sandbox (Error)',
-            loading: false,
-          },
-        }));
-      }
-      return;
-    }
-
-    // Mode 2: Live External Target Server Execution
     try {
       let fullUrl = `${targetServer.replace(/\/$/, '')}${path}`;
 
@@ -233,7 +178,6 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
           status: response.status,
           data: responseData,
           timeMs,
-          engine: 'External Target Server',
           loading: false,
         },
       }));
@@ -244,9 +188,8 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
         ...prev,
         [key]: {
           status: 0,
-          error: `${errorMessage}. (Đảm bảo server của Repo bạn đang khởi chạy ở cổng ${targetServer}, hoặc chọn chế độ '⚡ Sandboxed Execution' bên trên để test trực tiếp trong bộ nhớ).`,
+          error: `${errorMessage}. (Đảm bảo server của Repo bạn đang khởi chạy ở ${targetServer}).`,
           timeMs: Math.round(endTime - startTime),
-          engine: 'External Target Server (Connection Error)',
           loading: false,
         },
       }));
@@ -363,7 +306,7 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
           </button>
         </div>
         <span className="text-xs text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">
-          <Globe className="w-3.5 h-3.5" /> Client Sandbox
+          <Globe className="w-3.5 h-3.5" /> Live request from your browser
         </span>
       </div>
 
@@ -374,7 +317,7 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
         ) : (
           paths.flatMap(([pathStr, methodsObj]) => {
             if (!methodsObj || typeof methodsObj !== 'object') return [];
-            
+
             return Object.entries(methodsObj)
               .filter(([methodKey]) => HTTP_METHODS.has(methodKey.toLowerCase()))
               .map(([methodStr, rawOp]) => {
@@ -458,32 +401,9 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
                         {/* Interactive Try It Out Form */}
                         <div className="space-y-3 pt-2">
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <h4 className="font-semibold text-amber-400 flex items-center gap-1.5">
-                                <Play className="w-4 h-4 fill-current" /> Execution Engine:
-                              </h4>
-                              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                                <button
-                                  type="button"
-                                  onClick={() => setTestMode('sandbox')}
-                                  className={`flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                                    testMode === 'sandbox' ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30' : 'text-slate-400 hover:text-slate-200'
-                                  }`}
-                                >
-                                  <Cpu className="w-3 h-3 text-amber-400" />
-                                  ⚡ APILens Sandbox VM
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setTestMode('live')}
-                                  className={`px-2.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                                    testMode === 'live' ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30' : 'text-slate-400 hover:text-slate-200'
-                                  }`}
-                                >
-                                  🌐 External Live Server
-                                </button>
-                              </div>
-                            </div>
+                            <h4 className="font-semibold text-amber-400 flex items-center gap-1.5">
+                              <Play className="w-4 h-4 fill-current" /> Try it out
+                            </h4>
 
                             <button
                               type="button"
@@ -496,7 +416,7 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
                               ) : (
                                 <Send className="w-4 h-4" />
                               )}
-                              Execute Code Real
+                              Send Request
                             </button>
                           </div>
 
@@ -530,14 +450,7 @@ export function SwaggerPlayground({ spec, code }: SwaggerPlaygroundProps) {
                           {testResult && !testResult.loading && (
                             <div className="mt-4 p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
                               <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-400">Response Status:</span>
-                                  {testResult.engine && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                                      <Cpu className="w-3 h-3" /> {testResult.engine}
-                                    </span>
-                                  )}
-                                </div>
+                                <span className="font-semibold text-slate-400">Response Status:</span>
                                 <div className="flex items-center gap-3">
                                   <span className="text-slate-400">{testResult.timeMs} ms</span>
                                   <span
