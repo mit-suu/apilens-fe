@@ -92,7 +92,7 @@ export const listMyAnalyses = async (params?: {
     },
   });
 
-  return data.analyses;
+  return data?.analyses || [];
 };
 
 export const getAnalysis = async (analysisId: string) => {

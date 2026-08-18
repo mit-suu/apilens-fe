@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getBrowserAuthToken } from './auth-token';
+import { clearBrowserAuthToken, getBrowserAuthToken } from './auth-token';
 import { getApiBaseUrl } from './env';
 
 const instance = axios.create({
@@ -20,6 +20,12 @@ instance.interceptors.request.use((config) => {
 instance.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      clearBrowserAuthToken();
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.location.href = '/';
+      }
+    }
     if (error.response?.status === 402) {
       const msg = error.response.data?.error?.message || 'Insufficient credits for this action. Please upgrade your plan for 20,000 credits.';
       if (typeof window !== 'undefined' && window.confirm(`${msg}\n\nWould you like to view subscription plans now?`)) {

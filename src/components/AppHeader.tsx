@@ -6,7 +6,7 @@ import { type AuthUser } from '@/types/global';
 
 interface AppHeaderProps {
   user: AuthUser;
-  activeTab?: 'dashboard' | 'scan' | 'history' | 'admin';
+  activeTab?: 'dashboard' | 'scan' | 'history' | 'admin' | 'vscode';
   sourceMode?: 'repos' | 'url';
   onSourceModeChange?: (mode: 'repos' | 'url') => void;
 }
@@ -68,6 +68,10 @@ export default function AppHeader({
 
             <Link href="/app/history" className={navLinkClass(activeTab === 'history')}>
               History
+            </Link>
+
+            <Link href="/vscode" className={navLinkClass(activeTab === 'vscode')}>
+              VS Code Extension
             </Link>
 
             {isMitSuu && (

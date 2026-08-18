@@ -26,6 +26,8 @@ import {
   Crown,
   Play,
   Clock,
+  Download,
+  Code2,
 } from 'lucide-react';
 
 import AppHeader from '@/components/AppHeader';
@@ -445,6 +447,74 @@ export default function UserDashboard() {
               </div>
             );
           })()}
+        </div>
+
+        {/* 3. Developer Ecosystem: VS Code Extension Card Widget */}
+        <div className="rounded-2xl border border-indigo-500/40 bg-gradient-to-r from-[#0f172a] via-[#131c31] to-indigo-950/50 p-6 shadow-2xl relative overflow-hidden">
+          {/* Background glow decorative element */}
+          <div className="absolute -top-12 -right-12 h-40 w-40 rounded-full bg-indigo-600/10 blur-3xl pointer-events-none" />
+
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+            {/* Left Content Column */}
+            <div className="space-y-3 max-w-3xl">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  <Code2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-white">🔌 ApiLens for VS Code</h2>
+                    <span className="rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-[10px] font-bold text-indigo-300 border border-indigo-500/30 uppercase tracking-wider">
+                      Extension v0.0.1
+                    </span>
+                  </div>
+                  <p className="text-xs text-indigo-200/70 mt-0.5">Developer Tools & IDE Integration</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Analyze REST API smells and auto-fix code with AI directly inside your IDE without leaving VS Code. Get inline diagnostic squiggly warnings, instant reports, and 1-click QuickFix.
+              </p>
+
+              {/* 3 Quick Install Steps */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-[11px] text-gray-300">
+                <div className="flex items-center gap-2 rounded-lg bg-slate-900/60 px-3 py-2 border border-gray-800">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600/30 text-indigo-300 font-bold text-[10px]">1</span>
+                  <span>Download <code className="text-indigo-300">.vsix</code> file</span>
+                </div>
+                <div className="flex items-center gap-2 rounded-lg bg-slate-900/60 px-3 py-2 border border-gray-800">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600/30 text-indigo-300 font-bold text-[10px]">2</span>
+                  <span>VS Code: <code className="text-indigo-300">Install from VSIX...</code></span>
+                </div>
+                <div className="flex items-center gap-2 rounded-lg bg-slate-900/60 px-3 py-2 border border-gray-800">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600/30 text-indigo-300 font-bold text-[10px]">3</span>
+                  <span>Run <code className="text-indigo-300">Ctrl + Shift + P</code></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Action Column */}
+            <div className="flex flex-col sm:flex-row lg:flex-col gap-3 items-stretch sm:items-center lg:items-end justify-center flex-shrink-0">
+              <a
+                href="/downloads/apilens-vscode-0.0.1.vsix"
+                download="apilens-vscode-0.0.1.vsix"
+                className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 px-5 py-3 text-xs font-bold text-white hover:opacity-95 transition-all shadow-lg shadow-indigo-600/30 border border-indigo-400/30"
+              >
+                <Download className="h-4 w-4" />
+                <span>Download .VSIX Extension</span>
+              </a>
+              <Link
+                href="/vscode"
+                className="flex items-center justify-center gap-1.5 text-xs font-semibold text-indigo-300 hover:text-white transition-all"
+              >
+                <span>View Full Showcase Page</span>
+                <span>→</span>
+              </Link>
+              <span className="text-[11px] text-gray-400 text-center lg:text-right">
+                Compatible with VS Code v1.90+
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Charts Section: Quality Trend & Top Violated Rules */}
